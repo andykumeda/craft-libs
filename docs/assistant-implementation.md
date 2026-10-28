@@ -1,8 +1,10 @@
 # Portable assistant implementation ledger
 
-Last updated: 2026-10-28. Delivery state: Verified local implementation; publication and live acceptance remain pending.
-This checkpoint is included in the local `A1: portable native Craft assistant` commit; obtain its
-exact revision with `git log -1 --format=%H`. No push or release has occurred.
+Last updated: 2026-10-28. Delivery state: **Verified shared implementation**; provider/platform live acceptance remains open.
+Initial implementation `566be16052de3cbe04fa132a88c24db0b7c7f756` was published with user approval to
+`andykumeda/craft-libs`, branch `codex/portable-assistant`, and its remote SHA was verified. This
+follow-up commit adds verified Codex home isolation and document-label localization. The consumer
+ledger records the final published revision and WordCraft pin. No app release has occurred.
 
 The approved first integration is WordCraft desktop. Other Craft app integrations and browser
 inference are deferred. Shared code must not import an application engine or document model.
@@ -10,12 +12,12 @@ inference are deferred. Shared code must not import an application engine or doc
 | Workstream / owner | Acceptance and modules | State | Verification / outstanding work |
 | --- | --- | --- | --- |
 | Contracts / runtime agent | `ai-core::assistant`: messages, identified calls/results, target token, role declarations, configuration | Verified | AI-core tests: 221 passed; focused Clippy passed |
-| Native HTTP and routing / runtime agent | Two independent model roles, automatic delegation, streaming, cancellation, bounds, no fallback/replay | Verified | Final native tests: 35 passed, 2 platform tests ignored by default and passed separately on macOS; two synthetic app hosts, loopback HTTP and recovery/context review regressions covered; full Clippy passed |
+| Native HTTP and routing / runtime agent | Two independent model roles, automatic delegation, streaming, cancellation, bounds, no fallback/replay | Verified | Final native tests: 36 passed, 2 platform tests ignored by default and passed separately on macOS; two synthetic app hosts, loopback HTTP and recovery/context review regressions covered; full Clippy passed |
 | Native services / services agent | Locked store, credential references, history, isolated Codex app-server adapter | Verified (automated and local OS); live callback pending | Codex inference now requires runtime read/write/network denial and selected-model synthetic callback/continuation before caller context; expanded macOS sandbox probe passed; macOS synthetic keychain round-trip passed; real inference/platform gates below |
 | Reusable widgets / widget agent | Transcript, composer, settings, model picker, actions, activity, Stop | Verified | Seven assistant UI tests passed within 462 passing craft-ui tests; ignored screenshot capture passed separately and PNG inspected by widget agent |
-| Full shared gates / runtime agent | Formatting, workspace Clippy/tests, core/UI WASM | Verified | Final formatting, full all-targets Clippy, unfiltered workspace tests and core/UI WASM passed. Workspace total: 1,830 passed, 28 ignored; no tests filtered out. |
+| Full shared gates / runtime agent | Formatting, workspace Clippy/tests, core/UI WASM | Verified | Final formatting, full all-targets Clippy, unfiltered workspace tests and core/UI WASM passed. Workspace total after home-isolation hardening: 1,831 passed, 28 ignored; no tests filtered out. |
 | WordCraft integration / primary agent | MCP bridge, native services, docking/commands/settings, document/file guards | In progress | Separate WordCraft worktree ledger owns app evidence |
-| Documentation and commits / primary agent | Current docs, porting guide, focused shared commit and consumer pin | In progress | Shared implementation included in local A1 commit; consumer pin/publication still pending |
+| Documentation and commits / primary agent | Current docs, porting guide, focused shared commit and consumer pin | In progress | Initial A1 source published to the approved fork; verified follow-up included in this commit; final consumer pin tracked in WordCraft |
 
 ## Checkpoint and evidence
 
@@ -85,9 +87,36 @@ or existing conversation has been read for development.
 - No real sign-in, selected-model callback or WordCraft live MCP turn was performed. The gate is
   executable after the user signs in; it cannot be bypassed with a persisted flag.
 
+## Home-isolation hardening verification
+
+State: **Verified**, included in this follow-up commit; final consumer repin tracked in WordCraft. Base commit: `566be16`.
+Codex now receives the Craft profile for `HOME` and `USERPROFILE` as well as `CODEX_HOME`.
+A disposable synthetic `.agents` skill established the original discovery path in installed
+Codex 0.165.0 and its absence when all home variables are isolated. No real user skill content
+was read. An environment regression verifies the command's home and config variables.
+
+The same gate run includes the shared assistant's localized `Document: {name}` label.
+
+- `cargo fmt --check`: passed (`/private/tmp/craft-assistant-home-fmt.log`).
+- `cargo clippy --workspace --all-targets -- -D warnings`: passed
+  (`/private/tmp/craft-assistant-home-shared-clippy.log`).
+- `cargo test --workspace`: passed, unfiltered, **1,831 passed / 28 ignored**
+  (`/private/tmp/craft-assistant-home-shared-tests.log`).
+- `cargo check --target wasm32-unknown-unknown -p craft-ai-core -p craft-ui`: passed
+  (`/private/tmp/craft-assistant-home-wasm.log`).
+- Focused Codex tests: nine passed, one installed-runtime test ignored by default
+  (`/private/tmp/craft-assistant-home-tests.log`).
+- The ignored installed-runtime filesystem/network containment test passed separately on macOS
+  with all home variables isolated (`/private/tmp/craft-assistant-home-live.log`).
+
+The disposable `/private/tmp/craft-assistant-home-target` build cache was removed after gates.
+These checks do not imply real Codex sign-in or model inference. WordCraft's separate live-model
+acceptance and temporary local-service lifecycle remain in the consumer task ledger.
+
 ## Revision history
 
 | Date | Change |
 | --- | --- |
 | 2026-10-28 | Runtime recovery/security review fixes and final full shared gates passed |
 | 2026-10-28 | Initial implementation checkpoint and automated test evidence |
+| 2026-10-28 | Isolate Codex global home-based discovery; rerun full gates with localized assistant document label |

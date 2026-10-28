@@ -35,9 +35,10 @@ Route a connection whose provider is `codex` to `CodexProvider::new(CodexOptions
 from `PATH`. Set an absolute path for installations outside the application's `PATH`. An empty or
 missing selected executable fails explicitly without substituting another runtime. `CodexOptions`
 also permits apps to supply an executable path directly and an absolute, dedicated home. It refuses
-the user's existing default or active Codex home. The child inherits platform environment values
-only, not API keys or proxy/provider configuration. Existing coding-session configuration is not
-changed or copied.
+the user's existing default or active Codex home. `CODEX_HOME`, `HOME`, and `USERPROFILE` all
+point to that dedicated home: Codex discovers global `.agents` skills through `HOME` independently
+of `CODEX_HOME`. The child inherits platform plumbing only, not API keys, alternate user-config
+roots, or proxy/provider configuration. Existing coding-session configuration is not changed or copied.
 
 - `signed_in(config, cancellation)` reports only whether the isolated account is a ChatGPT account.
 - `start_login` returns a `LoginSession` with an HTTPS authorization URL and one-time code. Keep
@@ -121,5 +122,21 @@ tests passed; the extended installed-runtime macOS containment test passed. The 
 package run passed 34 ordinary tests with two platform tests ignored by default
 (`/private/tmp/craft-assistant-codex-gate-tests.log`). The explicitly run containment test passed
 (`/private/tmp/craft-assistant-codex-gate-live.log`). Initial native Clippy passed; a later run
-identified only a concurrent runtime-test lint, which its owner is fixing before full shared gates.
+identified only a concurrent runtime-test lint, subsequently fixed before passing full shared gates.
 The implementation ledger owns final shared gate evidence.
+
+### Home-discovery hardening, 2026-10-28
+
+A temporary synthetic skill proved that Codex 0.165.0 discovers `HOME/.agents/skills` when
+`CODEX_HOME` alone is isolated. With all three home variables pointed at the Craft profile,
+`skills/list` no longer discovered that external synthetic skill. Only temporary test content
+was used; no user skills, accounts, credentials or documents were inspected. The child command
+now enforces that isolation, with a unit regression checking its environment.
+
+Verification after home isolation and the assistant document-label localization fix:
+`cargo fmt --check`, full `cargo clippy --workspace --all-targets -- -D warnings`, and
+unfiltered `cargo test --workspace` passed (1,831 passed, 28 ignored). Core and UI
+`cargo check --target wasm32-unknown-unknown -p craft-ai-core -p craft-ui` passed.
+Nine focused Codex tests passed; the ignored installed-runtime read/write/network probe
+passed separately with the new isolated environment. Logs use the
+`/private/tmp/craft-assistant-home-` prefix; see the implementation ledger for exact paths.

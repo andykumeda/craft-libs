@@ -162,7 +162,7 @@ fn routes(ui: &mut Ui, state: &State, tr: &impl Fn(&str) -> String) {
         ui.small(format!("{}: {value}", tr(label)));
     }
     if !state.target_label.is_empty() {
-        ui.small(format!("{}: {}", tr("Document"), state.target_label));
+        ui.small(craft_i18n::fmt(&tr("Document: {name}"), &[("name", &state.target_label)]));
     }
 }
 

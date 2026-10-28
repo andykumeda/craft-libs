@@ -215,12 +215,14 @@ fn command(options: &CodexOptions, cwd: &Path) -> Result<Command, AiError> {
     // Pass only platform plumbing: provider keys, proxy overrides and coding-session state
     // from the application's environment must not become this account's connection settings.
     command.env_clear();
-    for key in ["PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "SSL_CERT_FILE", "SSL_CERT_DIR"] {
+    for key in ["PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "SSL_CERT_FILE", "SSL_CERT_DIR"] {
         if let Some(value) = std::env::var_os(key) {
             command.env(key, value);
         }
     }
-    command.env("CODEX_HOME", &options.home).current_dir(cwd).stderr(Stdio::null());
+    // Codex also discovers ~/.agents skills outside CODEX_HOME. Give every home-based lookup
+    // the same isolated root; never expose the user's coding profile through HOME/USERPROFILE.
+    command.env("CODEX_HOME", &options.home).env("HOME", &options.home).env("USERPROFILE", &options.home).current_dir(cwd).stderr(Stdio::null());
     for value in overrides() {
         command.args(["-c", &value]);
     }
@@ -826,6 +828,21 @@ mod tests {
 
     fn tool() -> ToolDefinition {
         ToolDefinition { name: "inspect".into(), description: "Read the current document".into(), input_schema: json!({"type":"object"}) }
+    }
+
+    #[test]
+    fn child_home_discovery_uses_only_the_craft_profile() {
+        let home = std::env::temp_dir().join("craft-synthetic-home");
+        let options = CodexOptions { binary: std::env::current_exe().unwrap(), home: home.clone() };
+        let child = command(&options, &home).unwrap();
+        let env: std::collections::HashMap<_, _> = child.get_envs().collect();
+        for key in ["HOME", "USERPROFILE", "CODEX_HOME"] {
+            assert_eq!(env.get(std::ffi::OsStr::new(key)), Some(&Some(home.as_os_str())));
+        }
+        // No alternate user configuration root is passed through from the application.
+        for key in ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "APPDATA", "LOCALAPPDATA", "OPENAI_API_KEY"] {
+            assert!(!env.contains_key(std::ffi::OsStr::new(key)));
+        }
     }
 
     #[test]
