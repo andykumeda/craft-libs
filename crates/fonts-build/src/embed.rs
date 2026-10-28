@@ -667,3 +667,19 @@ impl std::error::Error for Error {
         }
     }
 }
+
+#[cfg(all(test, unix))]
+mod path_tests {
+    use super::*;
+    use std::os::unix::ffi::OsStrExt;
+
+    #[test]
+    fn rejects_a_checkout_under_a_non_utf8_path() {
+        // Test the actual source-generation boundary without creating an invalid filename:
+        // APFS rejects such names before the application can inspect them.
+        let path = PathBuf::from(std::ffi::OsStr::from_bytes(b"craft-fonts-\xff/fonts/a.ttf"));
+        let entry = parse_manifest("A | Regular | fonts/a.ttf | Arab | OFL-1.1 | OFL.txt | 00 | src\n").unwrap().remove(0);
+        let face = Face { entry, path: path.clone(), index: 0, cut: false, sha256: String::new() };
+        assert!(matches!(table(&[face]), Err(Error::NonUtf8Path { path: rejected }) if rejected == path));
+    }
+}

@@ -11,6 +11,7 @@ description = "Reusable egui controls and icon catalogs for Craft frontends"
 workspace = true
 
 [dependencies]
+craft-ai-core = { workspace = true }
 craft-fonts-build = { workspace = true }
 craft-i18n = { workspace = true }
 egui = { workspace = true }

@@ -1,0 +1,29 @@
+[package]
+name = "craft-ai-native"
+description = "Portable native conversational assistant runtime for Craft apps"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+craft-ai-core.workspace = true
+craft-atomic.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono = { workspace = true, features = ["clock"] }
+dirs = "6"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
+tokio = { version = "1.53.2", features = ["rt", "time", "sync", "macros"] }
+url = "2.5.8"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "=3.6.3", features = ["apple-native"] }
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "=3.6.3", features = ["windows-native"] }
+[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))'.dependencies]
+keyring = { version = "=3.6.3", features = ["async-secret-service", "tokio", "crypto-rust"] }

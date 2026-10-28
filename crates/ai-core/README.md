@@ -2,8 +2,8 @@
 
 `craft-ai-core` is the data model and contract for AI in the Craft Apps: connections, models,
 capabilities, roles (tools), requests, jobs, consent, request history, the shared store's file
-format, and the declarative route spec. It has no I/O, no async runtime and compiles for
-`wasm32-unknown-unknown`. It depends only on `serde` and `serde_json`.
+format, portable assistant conversations and identified tool calls/results, and the declarative route spec. It has no I/O, no async runtime and compiles for
+`wasm32-unknown-unknown`. Its data dependencies are `serde`, `serde_json` and std-only `chrono`.
 
 One connection is set up once (in the launcher or any app) and every app that has the tool uses it.
 Each app keeps its own interface for each tool.
@@ -18,8 +18,11 @@ Each app keeps its own interface for each tool.
   [docs/ai-shared-layer.md](../../docs/ai-shared-layer.md) and the declarative route spec in
   [docs/ai-declarative-adapter.md](../../docs/ai-declarative-adapter.md).
 
-Later pull requests add the desktop half (secret stores and the shared store file), the client,
-the provider adapters and egui widgets as separate crates.
+The desktop assistant runtime, shared store and credential access live in
+[`craft-ai-native`](../ai-native/README.md); optional egui widgets live in
+[`craft-ui`](../ui/README.md). The `assistant` module adds the chat/control role declarations,
+provider-neutral messages, opaque target identity, and the single source of operational defaults
+without changing existing job/event contracts.
 
 ## Platforms
 
