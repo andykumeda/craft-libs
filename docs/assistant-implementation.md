@@ -1,11 +1,14 @@
 # Portable assistant implementation ledger
 
-Last updated: 2026-10-28. Delivery state: **Verified continuation/layout fixes (automated)**;
-corrected Codex and mixed-provider live acceptance remain in the WordCraft consumer ledger.
+Last updated: 2026-10-28. Delivery state: **Verified shared fixes and installed WordCraft Codex
+and mixed Codex/Ollama editing/read-back/Undo**. The
+[WordCraft consumer ledger](/Users/andy/Dev/wordcraft/docs/assistant-implementation.md)
+is authoritative for installed application, account, model-routing and live document evidence.
 Initial implementation `566be16052de3cbe04fa132a88c24db0b7c7f756` was published with user approval to
-`andykumeda/craft-libs`, branch `codex/portable-assistant`, and its remote SHA was verified. This
+`andykumeda/craft-libs`, branch `codex/portable-assistant`, and its remote SHA was verified. The
 previous follow-up `a8d4c0a178aff4c31d27e05bf87a4e93915bc831` added Codex home isolation and
-document-label localization. This follow-up repairs native Codex tool continuation and long-title
+document-label localization. Published shared revision
+`d4641d3663819aeb20cab5ccc1623292c5f4e30e` repairs native Codex tool continuation and long-title
 assistant layout. The consumer ledger records publication, its pinned revision and local preview
 installation; no public app release has occurred.
 
@@ -16,10 +19,10 @@ inference are deferred. Shared code must not import an application engine or doc
 | --- | --- | --- | --- |
 | Contracts / runtime agent | `ai-core::assistant`: messages, identified calls/results, target token, role declarations, configuration | Verified | AI-core tests: 221 passed; focused Clippy passed |
 | Native HTTP and routing / runtime agent | Two independent model roles, automatic delegation, streaming, cancellation, bounds, no fallback/replay | Verified | Final native tests: 45 passed, 2 platform tests ignored by default and passed separately on macOS before this follow-up; two synthetic app hosts, loopback HTTP and recovery/context review regressions covered; full Clippy passed |
-| Native services / services agent | Locked store, credential references, history, isolated Codex app-server adapter | Verified (automated and local OS); live callback pending | Codex inference now requires runtime read/write/network denial and selected-model synthetic callback/continuation before caller context; expanded macOS sandbox probe passed; macOS synthetic keychain round-trip passed; real inference/platform gates below |
+| Native services / services agent | Locked store, credential references, history, isolated Codex app-server adapter | Verified (automated, macOS OS and WordCraft Codex live callback) | Codex inference now requires runtime read/write/network denial and selected-model synthetic callback/continuation before caller context; expanded macOS sandbox probe passed; macOS synthetic keychain round-trip passed; real inference/platform gates below |
 | Reusable widgets / widget agent | Transcript, composer, settings, model picker, actions, activity, Stop | Verified | Eight assistant UI tests passed within 463 passing craft-ui tests; ignored long-title capture passed separately; idle/running PNGs inspected |
 | Full shared gates / runtime agent | Formatting, workspace Clippy/tests, core/UI WASM | Verified | Final formatting, full all-targets Clippy, unfiltered workspace tests and core/UI WASM passed. Workspace total after continuation/layout repair: 1,841 passed, 29 ignored; no tests filtered out. |
-| WordCraft integration / primary agent | MCP bridge, native services, docking/commands/settings, document/file guards | In progress | Separate WordCraft worktree ledger owns app evidence |
+| WordCraft integration / primary agent | MCP bridge, native services, docking/commands/settings, document/file guards | Verified for installed Codex and mixed-provider editing | Authoritative WordCraft consumer ledger records source `1692eef9`, shared pin `d4641d3`, exact edit/read-back and one normal Undo |
 | Documentation and commits / primary agent | Current docs, porting guide, focused shared commit and consumer pin | In progress | Initial A1 source published to the approved fork; verified follow-up included in this commit; final consumer pin tracked in WordCraft |
 
 ## Checkpoint and evidence
@@ -70,10 +73,13 @@ inference are deferred. Shared code must not import an application engine or doc
 
 ## Limits and release gates
 
-Real hosted/local inference, Codex account sign-in and complete containment, Windows/Linux/BSD
-credential stores and WordCraft end-to-end acceptance are distinct gates. Mock, loopback and
-headless tests must not be reported as these checks. No private document, real credential value
-or existing conversation has been read for development.
+Live provider use, Codex account sign-in and containment, platform credential stores and WordCraft
+end-to-end acceptance are distinct gates. The WordCraft consumer ledger records passed macOS
+Codex sign-in, callback/continuation, MCP editing/read-back/Undo, earlier local-model acceptance,
+and mixed Codex-chat/Ollama-control editing/read-back/Undo. Hosted compatible endpoints,
+broader adversarial live scenarios and Windows/Linux/BSD credential stores remain separate open gates. Mock, loopback and headless tests must not be reported
+as live checks. Development and acceptance use synthetic documents and task-created conversations;
+no real credential value or unrelated private document/conversation was read.
 
 ## Codex gate follow-up
 
@@ -87,8 +93,9 @@ or existing conversation has been read for development.
 - Native package tests passed 34 ordinary tests and ignored two platform tests by default. Log:
   `/private/tmp/craft-assistant-codex-gate-tests.log`. Later shared-gate runs supersede these counts
   as the integration workstreams finish. Source ownership and caller APIs remain unchanged.
-- No real sign-in, selected-model callback or WordCraft live MCP turn was performed. The gate is
-  executable after the user signs in; it cannot be bypassed with a persisted flag.
+- At that earlier checkpoint no real sign-in, selected-model callback or WordCraft live MCP turn
+  had been performed. The later consumer acceptance below supersedes that live-gate status. The
+  gate cannot be bypassed with a persisted flag.
 
 ## Home-isolation hardening verification
 
@@ -145,7 +152,7 @@ states, and no host/runtime API changed.
 
 ## Codex continuation and combined verification follow-up
 
-State: **Verified shared fixes; corrected native app acceptance pending.** The user completed
+State: **Verified shared fixes and installed Codex plus mixed-provider edit/read-back/Undo.** The user completed
 Craft-managed Codex sign-in in WordCraft and selected `gpt-6.1-sol` independently for both roles.
 The first synthetic native edit attempt made 11 successful document reads and no edits, then hit
 its round limit. Its original text remained unchanged. WordCraft owns the synthetic evidence and
@@ -159,7 +166,7 @@ Cancellation, expiry, disconnect and final provider drop terminate workers; fail
 writes never replay. The synthetic compatibility check now keeps tools available and continues
 from the actual result without appending another user instruction. Public rustdoc and services
 help require provider ownership per active turn or standalone probe, including cleanup on every
-exit; WordCraft already owns providers this way, and its live-test helper is being aligned.
+exit; WordCraft and its corrected standalone live-test probes own providers this way.
 
 Combined final gates on this source all passed:
 
@@ -176,11 +183,63 @@ Combined final gates on this source all passed:
 - Independent review found no remaining WordCraft continuation defect; the explicit portable
   provider-lifetime contract above is required for consumers retaining providers.
 
-No new dependency, application model dependency or public API was added. Build caches remain
-available temporarily for the consumer integration and will be removed after final checks.
-The next release checkpoint is the corrected installed WordCraft Codex edit/read-back/Undo test,
-then the user-requested Codex-chat/Ollama-control routing test. Hosted API and other-platform
-acceptance, other Craft integrations and browser inference remain deferred or separately gated.
+No new dependency, application model dependency or public API was added. Task-owned build caches were removed after the final consumer and shared delivery checks.
+The corrected installed WordCraft Codex edit/read-back/Undo checkpoint passed as recorded below.
+The user-requested Codex-chat/Ollama-control routing test also passed. Hosted API, broader
+adversarial live scenarios and other-platform acceptance remain separately gated; other Craft
+integrations and browser inference remain deferred.
+
+## Installed WordCraft live acceptance and delivery verification
+
+State: **Verified for Codex and mixed-provider editing/read-back/Undo.** The consumer's
+[authoritative live ledger](/Users/andy/Dev/wordcraft/docs/assistant-implementation.md)
+records installed WordCraft source `1692eef9cc87ced4d2a26e90f0b203e357abacce` with shared
+`d4641d3663819aeb20cab5ccc1623292c5f4e30e` on the Mini. Both independently configured roles used
+Codex `gpt-6.1-sol`; the synthetic task completed in about 30 seconds with one `control_app`
+delegation and six successful MCP calls: `get_text`, `inspect_document`, `select_text`, `type_text`,
+`get_text`, `inspect_document`. The document changed only from 9:00 AM to 10:00 AM, read-back
+matched exactly, and one normal Undo restored the full baseline. The native completion screenshot
+was inspected. This is installed consumer evidence, not a shared mock/test claim or public release.
+
+Synthetic consumer artifacts: `/private/tmp/wordcraft-routing-_u55a7zx/codex-status.json`,
+`codex-conversation.json`, `codex-verification.json` and `codex-complete.png`. The shared services
+agent inspected the verification artifact and consumer ledger; the consumer retains responsibility
+for account interaction, live inference, screenshot review, service lifecycle and final acceptance.
+The shared ledger does not copy credentials or private account details.
+
+The mixed-provider installed test passed in **256.04 seconds**. Captured native status transitions
+showed Codex/`gpt-6.1-sol` for chat, Ollama/`gemma4:e4b` for control, then Codex for the final chat
+response. One `control_app` delegation produced four successful MCP calls: `get_text`,
+`select_text`, `type_text`, `get_text`. Independent document inspection confirmed the exact
+9:00 AM to 10:00 AM change and one normal Undo restored the baseline. The owned Ollama endpoint
+received five successful HTTP 200 `POST /v1/chat/completions` requests after the test boundary;
+`/api/ps` recorded the selected local model and digest. No model was downloaded.
+
+Mixed consumer evidence in the same synthetic directory: `mixed-status.json`,
+`mixed-conversation.json`, `mixed-verification.json`, `mixed-ollama-active.json`,
+`mixed-ollama-requests.log` and `mixed-complete.png`. The verification artifact confirms the two
+independent routes, one delegation and four completed MCP operations without errors. Saved chat
+records alone do not persist provider/model provenance; the consumer's captured native routing
+transitions and local transport/model evidence substantiate this mixed-provider result. Broader
+hosted-provider, adversarial and other-platform live acceptance remain open.
+
+The required full shared delivery rerun is **Verified**, using
+`/private/tmp/craft-assistant-layout-target` with two build jobs, no debug info and no incremental
+cache. All four commands exited successfully:
+
+- `cargo fmt --check`: `/private/tmp/craft-assistant-delivery-fmt.log`.
+- `cargo clippy --workspace --all-targets -- -D warnings`:
+  `/private/tmp/craft-assistant-delivery-clippy.log`.
+- `cargo test --workspace`: **1,841 passed / 29 ignored / 0 failed / 0 filtered out** across
+  120 test summaries; `/private/tmp/craft-assistant-delivery-tests.log`.
+- `cargo check --target wasm32-unknown-unknown -p craft-ai-core -p craft-ui`:
+  `/private/tmp/craft-assistant-delivery-wasm.log`.
+
+`git diff --check` also passed. The local service inventory and current socket owners were
+inspected before the native transport tests, which retained their own OS-assigned loopback
+sockets. Existing consumer Ollama and preview listeners were not changed. No code or dependency
+changes are part of this ledger update. The primary agent commits and publishes this evidence
+separately; the installed consumer remains pinned to reviewed runtime revision `d4641d3`.
 
 ## Revision history
 
@@ -191,3 +250,4 @@ acceptance, other Craft integrations and browser inference remain deferred or se
 | 2026-10-28 | Isolate Codex global home-based discovery; rerun full gates with localized assistant document label |
 | 2026-10-28 | Keep long saved-chat titles within a compact, accessible assistant header; add idle/running geometry and screenshot evidence |
 | 2026-10-28 | Repair native Codex result continuation, retain canonical Craft history and pass all shared gates with long-title layout fixes |
+| 2026-10-28 | Record installed WordCraft Codex and mixed Codex/Ollama editing/read-back/Undo acceptance and rerun shared delivery gates |
