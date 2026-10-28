@@ -1,13 +1,13 @@
 //! Codex app-server adapter. Authentication is owned by Codex in an isolated Craft home.
 //!
-//! A model round uses an ephemeral thread. On a tool request the round ends, and the shared
-//! runtime executes the validated call before starting the next round from its canonical log.
+//! Each active exchange uses an ephemeral thread. Craft owns the canonical conversation and
+//! dispatches tools; matching results continue the waiting Codex turn through its native protocol.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
@@ -60,10 +60,17 @@ impl CodexOptions {
     }
 }
 
+/// Codex transport for one active assistant turn, including nested chat/control exchanges.
+///
+/// Construct one provider per `run_turn` invocation and drop it (including all clones) on every
+/// success or error exit. Alternatively, cancel that turn's token on every exit. A host or
+/// orchestrator error may end a turn without another provider call, so reusing a provider without
+/// this cleanup can retain parked workers until expiry. WordCraft uses per-turn ownership.
 #[derive(Clone)]
 pub struct CodexProvider {
     options: CodexOptions,
     verified: Arc<Mutex<Vec<CompatibilityIdentity>>>,
+    waiting: Arc<Mutex<WaitingExchanges>>,
 }
 
 fn configured_binary(value: Option<std::ffi::OsString>) -> PathBuf {
@@ -128,7 +135,9 @@ fn verify_callback_rounds(mut complete: impl FnMut(&[Message], &[ToolDefinition]
     }];
     let mut messages = vec![Message::text(
         MessageRole::User,
-        format!("Synthetic connection check: call craft_compatibility_probe exactly once with challenge {challenge}. Do not write prose."),
+        format!(
+            "Synthetic connection check: call craft_compatibility_probe exactly once with challenge {challenge}. After the tool returns, reply only with its confirmation value. Do not call the tool again."
+        ),
     )];
     let answer = complete(&messages, &tools).map_err(callback_failure)?;
     if answer.tool_calls.len() != 1
@@ -145,8 +154,7 @@ fn verify_callback_rounds(mut complete: impl FnMut(&[Message], &[ToolDefinition]
         tool_call_id: Some(call_id),
         tool_calls: Vec::new(),
     });
-    messages.push(Message::text(MessageRole::User, "Reply only with the confirmation value in the last tool result. Do not call another tool."));
-    let answer = complete(&messages, &[]).map_err(callback_failure)?;
+    let answer = complete(&messages, &tools).map_err(callback_failure)?;
     if !answer.tool_calls.is_empty() || answer.content.trim() != confirmation {
         return Err(callback_failure(compatibility()));
     }
@@ -304,9 +312,12 @@ impl PendingEvents {
     }
 }
 
+type WriteRequest = (Vec<u8>, mpsc::SyncSender<Result<(), AiError>>);
+
 struct RpcClient {
     child: Child,
-    input: ChildStdin,
+    input: mpsc::SyncSender<WriteRequest>,
+    cancel: Cancellation,
     lines: Receiver<Result<Value, AiError>>,
     next_id: u64,
     pending: PendingEvents,
@@ -327,13 +338,28 @@ impl RpcClient {
         cancel.check()?;
         check_home(options)?;
         let work = WorkingDirectory::new(&options.home)?;
-        let mut child = command(options, &work.0)?
+        let child = command(options, &work.0)?
             .args(["app-server", "--strict-config", "--listen", "stdio://"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
             .map_err(|_| AiError::unsupported("Codex could not start. Install Codex or choose its executable in the assistant configuration."))?;
-        let input = match child.stdin.take() {
+        let mut client = Self::from_child(child, work, config, cancel)?;
+        client.call(
+            "initialize",
+            json!({"clientInfo":{"name":"craft_assistant","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}),
+            cancel,
+        )?;
+        client.send(json!({"method":"initialized"}))?;
+        let config = client.call("config/read", json!({"includeLayers":false,"cwd":client.work.0}), cancel)?;
+        if !config.get("config").is_some_and(effective_policy) {
+            return Err(compatibility());
+        }
+        Ok(client)
+    }
+
+    fn from_child(mut child: Child, work: WorkingDirectory, config: &RuntimeConfig, cancel: &Cancellation) -> Result<Self, AiError> {
+        let mut input = match child.stdin.take() {
             Some(input) => input,
             None => {
                 let _ = child.kill();
@@ -349,6 +375,29 @@ impl RpcClient {
                 return Err(protocol("Codex did not provide an output pipe."));
             }
         };
+        let (writer, writes) = mpsc::sync_channel::<WriteRequest>(1);
+        if std::thread::Builder::new()
+            .name("craft-codex-input".into())
+            .spawn(move || {
+                while let Ok((bytes, reply)) = writes.recv() {
+                    let outcome = input
+                        .write_all(&bytes)
+                        .and_then(|_| input.write_all(b"\n"))
+                        .and_then(|_| input.flush())
+                        .map_err(|_| protocol("The Codex connection closed before the request was sent."));
+                    let failed = outcome.is_err();
+                    let _ = reply.send(outcome);
+                    if failed {
+                        return;
+                    }
+                }
+            })
+            .is_err()
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(protocol("Could not start the Codex input writer."));
+        }
         let (tx, lines) = mpsc::sync_channel(8);
         let limit = config.max_response_bytes;
         let spawned = std::thread::Builder::new().name("craft-codex-output".into()).spawn(move || {
@@ -373,18 +422,7 @@ impl RpcClient {
             let _ = child.wait();
             return Err(protocol("Could not start the Codex output reader."));
         }
-        let mut client = Self { child, input, lines, next_id: 1, pending: PendingEvents::default(), config: config.clone(), work };
-        client.call(
-            "initialize",
-            json!({"clientInfo":{"name":"craft_assistant","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}),
-            cancel,
-        )?;
-        client.send(json!({"method":"initialized"}))?;
-        let config = client.call("config/read", json!({"includeLayers":false,"cwd":client.work.0}), cancel)?;
-        if !config.get("config").is_some_and(effective_policy) {
-            return Err(compatibility());
-        }
-        Ok(client)
+        Ok(Self { child, input: writer, cancel: cancel.clone(), lines, next_id: 1, pending: PendingEvents::default(), config: config.clone(), work })
     }
 
     fn send(&mut self, message: Value) -> Result<(), AiError> {
@@ -392,16 +430,27 @@ impl RpcClient {
         if bytes.len() > self.config.max_context_bytes.saturating_add(self.config.max_response_bytes) {
             return Err(AiError::invalid("The Codex request exceeds its configured size limit."));
         }
-        self.input
-            .write_all(&bytes)
-            .and_then(|_| self.input.write_all(b"\n"))
-            .and_then(|_| self.input.flush())
-            .map_err(|_| protocol("The Codex connection closed before the request was sent."))
+        self.cancel.check()?;
+        let (reply, written) = mpsc::sync_channel(1);
+        self.input.try_send((bytes, reply)).map_err(|_| protocol("Codex input is unavailable; no request was replayed."))?;
+        let deadline = Instant::now() + Duration::from_secs(self.config.request_timeout_secs);
+        loop {
+            self.cancel.check()?;
+            if Instant::now() >= deadline {
+                return Err(protocol("Codex input timed out; no request was replayed."));
+            }
+            match written.recv_timeout(Duration::from_millis(50)) {
+                Ok(result) => return result,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return Err(protocol("Codex input disconnected; no request was replayed.")),
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+        }
     }
 
     fn receive_wire(&self, deadline: Instant, cancel: &Cancellation) -> Result<Value, AiError> {
         loop {
             cancel.check()?;
+            self.cancel.check()?;
             if Instant::now() >= deadline {
                 return Err(AiError::new(ErrorKind::Network, "Codex timed out; no request was replayed."));
             }
@@ -445,7 +494,7 @@ impl RpcClient {
 
 impl CodexProvider {
     pub fn new(options: CodexOptions) -> Self {
-        Self { options, verified: Arc::new(Mutex::new(Vec::new())) }
+        Self { options, verified: Arc::new(Mutex::new(Vec::new())), waiting: Arc::new(Mutex::new(WaitingExchanges::default())) }
     }
 
     /// Validate synthetic callback/continuation and containment before sending application content.
@@ -470,8 +519,10 @@ impl CodexProvider {
                 "Sign in to Craft's isolated Codex account before its compatibility check. No document content was sent.",
             ));
         }
+        // The gate has a separate ephemeral exchange, never a live application continuation.
+        let probe = Self::new(self.options.clone());
         verify_callback_rounds(|messages, tools| {
-            self.complete_round(&ModelRequest { connection, model, messages, tools, config }, cancel, &mut |_| {})
+            probe.complete_round(&ModelRequest { connection, model, messages, tools, config }, cancel, &mut |_| {})
         })?;
         cancel.check()?;
         if identity != CompatibilityIdentity::current(&self.options, model, config)? {
@@ -708,9 +759,179 @@ fn validated_call(message: &Value, thread: &str, turn: &str, tools: &[ToolDefini
     Ok(ToolCall { id: id.to_owned(), name: name.to_owned(), arguments })
 }
 
+// One waiting exchange per assistant role. Synthetic compatibility probes use a separate provider.
+const MAX_WAITING_EXCHANGES: usize = 2;
+
+#[derive(Default)]
+struct WaitingExchanges {
+    exchanges: Vec<WaitingExchange>,
+    reaping: bool,
+}
+
+struct Exchange {
+    client: RpcClient,
+    thread: String,
+    turn: String,
+    connection: Connection,
+    model: ModelId,
+    tools: Vec<ToolDefinition>,
+    config: RuntimeConfig,
+    identity: CompatibilityIdentity,
+    rounds: u32,
+    seen: HashSet<String>,
+}
+
+struct WaitingExchange {
+    exchange: Exchange,
+    expected: Vec<Message>,
+    call: ToolCall,
+    request_id: Value,
+    cancel: Cancellation,
+    expires: Instant,
+}
+
+fn continuation_failure() -> AiError {
+    protocol(
+        "Codex tool continuation no longer matches the active conversation or configuration. Inspect the document before starting a new request; no action was replayed.",
+    )
+}
+
+impl WaitingExchange {
+    fn matches(&self, options: &CodexOptions, request: &ModelRequest<'_>) -> Result<bool, AiError> {
+        let Some((result, prefix)) = request.messages.split_last() else { return Ok(false) };
+        Ok(result.role == MessageRole::Tool
+            && result.tool_call_id.as_deref() == Some(self.call.id.as_str())
+            && result.tool_calls.is_empty()
+            && prefix == self.expected
+            && request.connection == &self.exchange.connection
+            && request.model == &self.exchange.model
+            && request.tools == self.exchange.tools
+            && request.config == &self.exchange.config
+            && self.exchange.identity == CompatibilityIdentity::current(options, request.model, request.config)?)
+    }
+
+    fn response(&self, result: &Message) -> Result<Value, AiError> {
+        if result.content.len() > self.exchange.config.max_response_bytes {
+            return Err(protocol("Codex tool result exceeds its configured limit; no action was replayed."));
+        }
+        let value: Value =
+            serde_json::from_str(&result.content).map_err(|_| protocol("Codex tool result is not valid JSON; no action was replayed."))?;
+        Ok(json!({"id":self.request_id,"result":{
+            "contentItems":[{"type":"inputText","text":result.content}],
+            "success":value.get("isError").and_then(Value::as_bool) != Some(true),
+        }}))
+    }
+}
+
 impl CodexProvider {
+    fn clear_waiting(&self) {
+        if let Ok(mut waiting) = self.waiting.lock() {
+            waiting.exchanges.clear();
+        }
+    }
+
+    fn take_waiting(&self, request: &ModelRequest<'_>, take: bool) -> Result<Option<WaitingExchange>, AiError> {
+        let mut waiting = self.waiting.lock().map_err(|_| protocol("Codex continuation state is unavailable."))?;
+        waiting.exchanges.retain(|pending| !pending.cancel.is_cancelled() && Instant::now() < pending.expires);
+        if request.messages.last().is_none_or(|message| message.role != MessageRole::Tool) {
+            return Ok(None);
+        }
+        let mut found = None;
+        for (index, pending) in waiting.exchanges.iter().enumerate() {
+            if pending.matches(&self.options, request)? {
+                if found.is_some() {
+                    return Err(continuation_failure());
+                }
+                found = Some(index);
+            }
+        }
+        let index = found.ok_or_else(continuation_failure)?;
+        Ok(take.then(|| waiting.exchanges.remove(index)))
+    }
+
+    fn keep_waiting(&self, pending: WaitingExchange) -> Result<(), AiError> {
+        pending.cancel.check()?;
+        let mut waiting = self.waiting.lock().map_err(|_| protocol("Codex continuation state is unavailable."))?;
+        waiting.exchanges.retain(|pending| !pending.cancel.is_cancelled() && Instant::now() < pending.expires);
+        if waiting.exchanges.len() >= MAX_WAITING_EXCHANGES {
+            return Err(protocol("Codex already has the maximum active assistant exchanges. Stop the current turn before starting another."));
+        }
+        waiting.exchanges.push(pending);
+        if !waiting.reaping {
+            waiting.reaping = true;
+            let weak = Arc::downgrade(&self.waiting);
+            if std::thread::Builder::new()
+                .name("craft-codex-cleanup".into())
+                .spawn(move || {
+                    loop {
+                        {
+                            let Some(shared) = weak.upgrade() else { return };
+                            let Ok(mut waiting) = shared.lock() else { return };
+                            waiting.exchanges.retain(|pending| !pending.cancel.is_cancelled() && Instant::now() < pending.expires);
+                            if waiting.exchanges.is_empty() {
+                                waiting.reaping = false;
+                                return;
+                            }
+                        }
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                })
+                .is_err()
+            {
+                waiting.exchanges.clear();
+                waiting.reaping = false;
+                return Err(protocol("Could not monitor Codex cancellation; no action was dispatched."));
+            }
+        }
+        Ok(())
+    }
+
     fn complete_round(&self, request: &ModelRequest<'_>, cancel: &Cancellation, emit: &mut dyn FnMut(&str)) -> Result<Message, AiError> {
-        let mut client = RpcClient::start(&self.options, request.config, cancel)?;
+        let result = self.round(request, cancel, emit);
+        if result.is_err() {
+            self.clear_waiting();
+        }
+        result
+    }
+
+    fn round(&self, request: &ModelRequest<'_>, cancel: &Cancellation, emit: &mut dyn FnMut(&str)) -> Result<Message, AiError> {
+        request.config.validate()?;
+        cancel.check()?;
+        // Bound retained canonical state as well as initial context. A result is never resent on error.
+        if serde_json::to_vec(&request.messages).map_err(|_| protocol("Could not encode the conversation."))?.len() > request.config.max_context_bytes
+        {
+            return Err(AiError::invalid("The conversation exceeds the configured context limit. Start a new chat."));
+        }
+        let mut exchange = if let Some(mut pending) = self.take_waiting(request, true)? {
+            let result = request.messages.last().ok_or_else(continuation_failure)?;
+            let response = pending.response(result)?;
+            pending.cancel.check()?;
+            cancel.check()?;
+            pending.exchange.client.send(response)?;
+            pending.exchange
+        } else {
+            if request.messages.last().is_none_or(|message| message.role != MessageRole::User) {
+                return Err(continuation_failure());
+            }
+            Exchange::start(&self.options, request, cancel)?
+        };
+        let (answer, request_id) = exchange.receive(cancel, emit)?;
+        if let Some(request_id) = request_id {
+            let call = answer.tool_calls.first().cloned().ok_or_else(continuation_failure)?;
+            let mut expected = request.messages.to_vec();
+            expected.push(answer.clone());
+            // A chat delegation can wait while the other role uses the configured round budget.
+            let duration = Duration::from_secs(request.config.request_timeout_secs.saturating_mul(u64::from(request.config.max_rounds)));
+            let expires = Instant::now().checked_add(duration).ok_or_else(continuation_failure)?;
+            self.keep_waiting(WaitingExchange { exchange, expected, call, request_id, cancel: cancel.clone(), expires })?;
+        }
+        Ok(answer)
+    }
+}
+
+impl Exchange {
+    fn start(options: &CodexOptions, request: &ModelRequest<'_>, cancel: &Cancellation) -> Result<Self, AiError> {
+        let mut client = RpcClient::start(options, request.config, cancel)?;
         let instructions = request
             .messages
             .iter()
@@ -739,26 +960,52 @@ impl CodexProvider {
         let thread = start.pointer("/thread/id").and_then(Value::as_str).ok_or_else(|| protocol("Codex returned no thread identifier."))?.to_owned();
         let started = client.call("turn/start", json!({"threadId":thread,"input":[{"type":"text","text":context,"text_elements":[]}]}), cancel)?;
         let turn = started.pointer("/turn/id").and_then(Value::as_str).ok_or_else(|| protocol("Codex returned no turn identifier."))?.to_owned();
-        let deadline = Instant::now() + Duration::from_secs(request.config.request_timeout_secs);
+        Ok(Self {
+            client,
+            thread,
+            turn,
+            connection: request.connection.clone(),
+            model: request.model.clone(),
+            tools: request.tools.to_vec(),
+            config: request.config.clone(),
+            identity: CompatibilityIdentity::current(options, request.model, request.config)?,
+            rounds: 0,
+            seen: HashSet::new(),
+        })
+    }
+
+    fn receive(&mut self, cancel: &Cancellation, emit: &mut dyn FnMut(&str)) -> Result<(Message, Option<Value>), AiError> {
+        self.rounds = self.rounds.saturating_add(1);
+        if self.rounds > self.config.max_rounds {
+            return Err(protocol("Codex reached the configured tool-round limit; no action was replayed."));
+        }
+        let deadline = Instant::now() + Duration::from_secs(self.config.request_timeout_secs);
         let mut answer = Message::text(MessageRole::Assistant, "");
         loop {
-            let message = client.receive(deadline, cancel)?;
+            let message = self.client.receive(deadline, cancel)?;
             let method = message.get("method").and_then(Value::as_str).unwrap_or("");
             if method == "item/tool/call" {
-                let call = validated_call(&message, &thread, &turn, request.tools, request.config.max_tool_arguments_bytes)?;
+                let call = validated_call(&message, &self.thread, &self.turn, &self.tools, self.config.max_tool_arguments_bytes)?;
+                let id = message
+                    .get("id")
+                    .filter(|id| id.as_str().is_some_and(|id| !id.is_empty() && id.len() <= 256) || id.as_i64().is_some() || id.as_u64().is_some())
+                    .cloned()
+                    .ok_or_else(|| protocol("Codex tool request has an invalid response identifier."))?;
+                if !self.seen.insert(call.id.clone()) {
+                    return Err(protocol("Codex repeated a tool call identifier; no action was replayed."));
+                }
                 answer.tool_calls.push(call);
-                // The native runtime owns execution; close this ephemeral worker before dispatch.
-                return Ok(answer);
+                return Ok((answer, Some(id)));
             }
             if message.get("id").is_some() && !method.is_empty() {
-                client.refuse(&message)?;
+                self.client.refuse(&message)?;
                 return Err(compatibility());
             }
-            if message.pointer("/params/threadId").and_then(Value::as_str) != Some(thread.as_str()) {
+            if message.pointer("/params/threadId").and_then(Value::as_str) != Some(self.thread.as_str()) {
                 continue;
             }
             if let Some(id) = message.pointer("/params/turnId").and_then(Value::as_str)
-                && id != turn
+                && id != self.turn
             {
                 continue;
             }
@@ -766,7 +1013,7 @@ impl CodexProvider {
                 "item/agentMessage/delta" => {
                     let delta =
                         message.pointer("/params/delta").and_then(Value::as_str).ok_or_else(|| protocol("Codex returned an invalid text delta."))?;
-                    if answer.content.len().saturating_add(delta.len()) > request.config.max_response_bytes {
+                    if answer.content.len().saturating_add(delta.len()) > self.config.max_response_bytes {
                         return Err(protocol("Codex response exceeds its configured limit."));
                     }
                     answer.content.push_str(delta);
@@ -781,7 +1028,7 @@ impl CodexProvider {
                 "turn/completed" => {
                     let status = message.pointer("/params/turn/status").and_then(Value::as_str);
                     return if status == Some("completed") {
-                        Ok(answer)
+                        Ok((answer, None))
                     } else {
                         Err(protocol("Codex did not complete the turn; no action was replayed."))
                     };
@@ -795,8 +1042,17 @@ impl CodexProvider {
 
 impl ChatProvider for CodexProvider {
     fn complete(&self, request: &ModelRequest<'_>, cancel: &Cancellation, emit: &mut dyn FnMut(&str)) -> Result<Message, AiError> {
-        self.verify_compatibility(request.connection, request.model, request.config, cancel)?;
-        self.complete_round(request, cancel, emit)
+        let result = (|| {
+            cancel.check()?;
+            // Reject a changed continuation before any synthetic probe or new inference.
+            self.take_waiting(request, false)?;
+            self.verify_compatibility(request.connection, request.model, request.config, cancel)?;
+            self.complete_round(request, cancel, emit)
+        })();
+        if result.is_err() {
+            self.clear_waiting();
+        }
+        result
     }
 
     fn models(&self, _connection: &Connection, config: &RuntimeConfig, cancel: &Cancellation) -> Result<Vec<ModelInfo>, AiError> {
@@ -902,7 +1158,9 @@ mod tests {
                     tool_calls: vec![ToolCall { id: "synthetic-call".into(), name: tool.name.clone(), arguments: json!({"challenge":challenge}) }],
                 })
             } else {
-                assert!(tools.is_empty());
+                assert_eq!(tools.len(), 1);
+                assert_eq!(messages.len(), 3);
+                assert_eq!(messages.last().unwrap().role, MessageRole::Tool);
                 let result = messages.iter().find(|message| message.role == MessageRole::Tool).unwrap();
                 assert_eq!(result.tool_call_id.as_deref(), Some("synthetic-call"));
                 let result: Value = serde_json::from_str(&result.content).unwrap();
@@ -991,5 +1249,339 @@ mod tests {
         assert_eq!(events.pop(), Some(second));
         assert_eq!(events.bytes, 0);
         assert!(events.push(json!({"delta":"x".repeat(2000)}), 1024).is_err());
+    }
+
+    #[cfg(unix)]
+    mod continuation {
+        use super::*;
+
+        struct Fixture {
+            root: PathBuf,
+            provider: CodexProvider,
+            connection: Connection,
+            model: ModelId,
+            config: RuntimeConfig,
+            tools: Vec<ToolDefinition>,
+        }
+
+        impl Fixture {
+            fn new() -> Self {
+                let root = std::env::temp_dir().join(format!(
+                    "craft-codex-continuation-{}-{}",
+                    std::process::id(),
+                    NEXT_PROCESS.fetch_add(1, Ordering::Relaxed)
+                ));
+                let provider = CodexProvider::new(CodexOptions { binary: std::env::current_exe().unwrap(), home: root.clone() });
+                Self {
+                    root,
+                    provider,
+                    connection: Connection {
+                        id: craft_ai_core::ConnectionId::new("codex-test").unwrap(),
+                        label: "Synthetic".into(),
+                        provider: "codex".into(),
+                        endpoint: None,
+                        locality: craft_ai_core::Locality::Remote,
+                        auth: craft_ai_core::Auth::None,
+                        billing: craft_ai_core::Billing::Unknown,
+                        models: Vec::new(),
+                        enabled: true,
+                        key_header: None,
+                    },
+                    model: ModelId::new("synthetic-model").unwrap(),
+                    config: RuntimeConfig { request_timeout_secs: 2, ..RuntimeConfig::default() },
+                    tools: vec![
+                        tool(),
+                        ToolDefinition { name: "edit".into(), description: "Synthetic edit".into(), input_schema: json!({"type":"object"}) },
+                    ],
+                }
+            }
+
+            fn request<'a>(&'a self, messages: &'a [Message]) -> ModelRequest<'a> {
+                ModelRequest { connection: &self.connection, model: &self.model, messages, tools: &self.tools, config: &self.config }
+            }
+
+            fn exchange(&self, script: &str, cancel: &Cancellation) -> Exchange {
+                let work = WorkingDirectory::new(&self.root).unwrap();
+                let child =
+                    Command::new("/bin/sh").args(["-c", script]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+                Exchange {
+                    client: RpcClient::from_child(child, work, &self.config, cancel).unwrap(),
+                    thread: "test-thread".into(),
+                    turn: "test-turn".into(),
+                    connection: self.connection.clone(),
+                    model: self.model.clone(),
+                    tools: self.tools.clone(),
+                    config: self.config.clone(),
+                    identity: CompatibilityIdentity::current(&self.provider.options, &self.model, &self.config).unwrap(),
+                    rounds: 0,
+                    seen: HashSet::new(),
+                }
+            }
+
+            fn park(&self, script: &str, messages: &mut Vec<Message>, cancel: &Cancellation) -> (u32, PathBuf) {
+                let mut exchange = self.exchange(script, cancel);
+                let pid = exchange.client.child.id();
+                let work = exchange.client.work.0.clone();
+                let (answer, id) = exchange.receive(cancel, &mut |_| {}).unwrap();
+                let call = answer.tool_calls.first().unwrap().clone();
+                messages.push(answer);
+                self.provider
+                    .keep_waiting(WaitingExchange {
+                        exchange,
+                        expected: messages.clone(),
+                        call,
+                        request_id: id.unwrap(),
+                        cancel: cancel.clone(),
+                        expires: Instant::now() + Duration::from_secs(20),
+                    })
+                    .unwrap();
+                (pid, work)
+            }
+        }
+
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                self.provider.clear_waiting();
+                let _ = std::fs::remove_dir_all(&self.root);
+            }
+        }
+
+        fn quote(text: &str) -> String {
+            format!("'{}'", text.replace('\'', "'\\''"))
+        }
+        fn output(value: Value) -> String {
+            format!("printf '%s\\n' {}\n", quote(&value.to_string()))
+        }
+        fn call(id: Value, call_id: &str, name: &str) -> Value {
+            json!({"id":id,"method":"item/tool/call","params":{"threadId":"test-thread","turnId":"test-turn","callId":call_id,"tool":name,"arguments":{}}})
+        }
+        fn delta(text: &str) -> Value {
+            json!({"method":"item/agentMessage/delta","params":{"threadId":"test-thread","turnId":"test-turn","delta":text}})
+        }
+        fn completed() -> Value {
+            json!({"method":"turn/completed","params":{"threadId":"test-thread","turnId":"test-turn","turn":{"status":"completed"}}})
+        }
+        fn expect_result(id: Value, content: &Value, success: bool) -> String {
+            let expected = json!({"id":id,"result":{"contentItems":[{"type":"inputText","text":content.to_string()}],"success":success}});
+            format!("IFS= read -r response || exit 90\n[ \"$response\" = {} ] || exit 91\n", quote(&expected.to_string()))
+        }
+        fn waiting_script(id: &str) -> String {
+            output(call(json!(41), id, "inspect")) + "IFS= read -r response\nexit 92\n"
+        }
+        fn assert_stopped(pid: u32, work: &Path) {
+            assert!(!work.exists(), "owned working directory was not cleaned up");
+            assert!(
+                !Command::new("/bin/kill").args(["-0", &pid.to_string()]).stdout(Stdio::null()).stderr(Stdio::null()).status().unwrap().success(),
+                "owned child is still alive"
+            );
+        }
+
+        #[test]
+        fn actual_tool_responses_continue_read_edit_readback_without_restarting_or_repeating_text() {
+            let fixture = Fixture::new();
+            let cancel = Cancellation::new();
+            let read = json!({"text":"The workshop starts at 9:00 AM.","isError":false});
+            let edited = json!({"changed":true,"isError":false});
+            let readback = json!({"text":"The workshop starts at 10:00 AM.","isError":false});
+            let script = output(delta("Reading. "))
+                + &output(call(json!(91), "read-call", "inspect"))
+                + &expect_result(json!(91), &read, true)
+                + &output(delta("Editing. "))
+                + &output(call(json!("rpc-edit"), "edit-call", "edit"))
+                + &expect_result(json!("rpc-edit"), &edited, true)
+                + &output(delta("Checking. "))
+                + &output(call(json!(93), "readback-call", "inspect"))
+                + &expect_result(json!(93), &readback, true)
+                + &output(delta("Verified."))
+                + &output(completed());
+            let mut messages = vec![Message::text(MessageRole::User, "Change only 9:00 AM to 10:00 AM and verify.")];
+            let (pid, work) = fixture.park(&script, &mut messages, &cancel);
+            assert_eq!(messages.last().unwrap().content, "Reading. ");
+            for (id, result, expected_text, expected_tool) in [
+                ("read-call", read, "Editing. ", Some("edit")),
+                ("edit-call", edited, "Checking. ", Some("inspect")),
+                ("readback-call", readback, "Verified.", None),
+            ] {
+                messages.push(Message::tool(id, &result));
+                let mut streamed = String::new();
+                let answer = fixture.provider.complete_round(&fixture.request(&messages), &cancel, &mut |text| streamed.push_str(text)).unwrap();
+                assert_eq!(answer.content, expected_text);
+                assert_eq!(streamed, expected_text);
+                assert_eq!(answer.tool_calls.first().map(|call| call.name.as_str()), expected_tool);
+                messages.push(answer);
+            }
+            assert!(fixture.provider.waiting.lock().unwrap().exchanges.is_empty());
+            assert_stopped(pid, &work);
+        }
+
+        #[test]
+        fn separate_chat_and_control_exchanges_route_to_their_original_rpc_requests() {
+            let fixture = Fixture::new();
+            let cancel = Cancellation::new();
+            let result = json!({"summary":"synthetic result"});
+            let mut chats = Vec::new();
+            for (id, prompt) in [("chat-delegation", "Chat role"), ("control-read", "Control role")] {
+                let script =
+                    output(call(json!(id), id, "inspect")) + &expect_result(json!(id), &result, true) + &output(delta(prompt)) + &output(completed());
+                let mut messages = vec![Message::text(MessageRole::User, prompt)];
+                fixture.park(&script, &mut messages, &cancel);
+                messages.push(Message::tool(id, &result));
+                chats.push((messages, prompt));
+            }
+            for (messages, prompt) in chats.into_iter().rev() {
+                let answer = fixture.provider.complete_round(&fixture.request(&messages), &cancel, &mut |_| {}).unwrap();
+                assert_eq!(answer.content, prompt);
+            }
+            assert!(fixture.provider.waiting.lock().unwrap().exchanges.is_empty());
+        }
+
+        #[test]
+        fn changed_continuation_is_rejected_and_kills_the_waiting_worker() {
+            for change in ["prefix", "call", "connection", "model", "catalog", "config", "executable"] {
+                let mut fixture = Fixture::new();
+                let cancel = Cancellation::new();
+                let mut messages = vec![Message::text(MessageRole::User, "Synthetic request")];
+                let (pid, work) = fixture.park(&waiting_script("read-call"), &mut messages, &cancel);
+                messages.push(Message::tool("read-call", &json!({"text":"synthetic"})));
+                match change {
+                    "prefix" => messages.first_mut().unwrap().content.push_str(" changed"),
+                    "call" => messages.last_mut().unwrap().tool_call_id = Some("different".into()),
+                    "connection" => fixture.connection.label.push_str(" changed"),
+                    "model" => fixture.model = ModelId::new("different-model").unwrap(),
+                    "catalog" => fixture.tools.first_mut().unwrap().description.push_str(" changed"),
+                    "config" => fixture.config.request_timeout_secs += 1,
+                    _ => fixture.provider.options.binary = PathBuf::from("/missing/synthetic-codex"),
+                }
+                assert!(fixture.provider.complete_round(&fixture.request(&messages), &cancel, &mut |_| {}).is_err(), "accepted {change}");
+                assert!(fixture.provider.waiting.lock().unwrap().exchanges.is_empty());
+                assert_stopped(pid, &work);
+            }
+        }
+
+        #[test]
+        fn cancelled_parked_worker_is_reaped_without_another_provider_call() {
+            let fixture = Fixture::new();
+            let cancel = Cancellation::new();
+            let mut messages = vec![Message::text(MessageRole::User, "Synthetic request")];
+            let (pid, work) = fixture.park(&waiting_script("read-call"), &mut messages, &cancel);
+            cancel.cancel();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while !fixture.provider.waiting.lock().unwrap().exchanges.is_empty() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            assert!(fixture.provider.waiting.lock().unwrap().exchanges.is_empty());
+            assert_stopped(pid, &work);
+        }
+
+        #[test]
+        fn failed_result_is_delivered_as_failure_and_never_retried() {
+            let fixture = Fixture::new();
+            let cancel = Cancellation::new();
+            let result = json!({"isError":true,"error":"Synthetic protection refusal"});
+            let script = output(call(json!(17), "read-call", "inspect"))
+                + &expect_result(json!(17), &result, false)
+                + &output(delta("Refused."))
+                + &output(completed());
+            let mut messages = vec![Message::text(MessageRole::User, "Synthetic request")];
+            fixture.park(&script, &mut messages, &cancel);
+            messages.push(Message::tool("read-call", &result));
+            assert_eq!(fixture.provider.complete_round(&fixture.request(&messages), &cancel, &mut |_| {}).unwrap().content, "Refused.");
+            assert!(fixture.provider.complete_round(&fixture.request(&messages), &cancel, &mut |_| {}).is_err());
+        }
+
+        #[test]
+        fn malformed_rpc_id_and_duplicate_call_id_are_rejected() {
+            let fixture = Fixture::new();
+            let cancel = Cancellation::new();
+            for id in [Value::Null, json!({"bad":1}), json!(""), json!(1.5)] {
+                let mut exchange = fixture.exchange(&output(call(id, "call-one", "inspect")), &cancel);
+                assert!(exchange.receive(&cancel, &mut |_| {}).is_err());
+            }
+            let result = json!({"text":"synthetic"});
+            let script = output(call(json!(17), "read-call", "inspect"))
+                + &expect_result(json!(17), &result, true)
+                + &output(call(json!(18), "read-call", "inspect"));
+            let mut messages = vec![Message::text(MessageRole::User, "Synthetic request")];
+            let (pid, work) = fixture.park(&script, &mut messages, &cancel);
+            messages.push(Message::tool("read-call", &result));
+            assert!(fixture.provider.complete_round(&fixture.request(&messages), &cancel, &mut |_| {}).unwrap_err().message.contains("repeated"));
+            assert_stopped(pid, &work);
+        }
+
+        #[test]
+        fn disconnected_worker_cannot_replay_a_delivered_result() {
+            let fixture = Fixture::new();
+            let cancel = Cancellation::new();
+            let result = json!({"text":"synthetic"});
+            let script = output(call(json!(17), "read-call", "inspect")) + &expect_result(json!(17), &result, true) + "exit 9\n";
+            let mut messages = vec![Message::text(MessageRole::User, "Synthetic request")];
+            let (pid, work) = fixture.park(&script, &mut messages, &cancel);
+            messages.push(Message::tool("read-call", &result));
+            assert!(fixture.provider.complete_round(&fixture.request(&messages), &cancel, &mut |_| {}).unwrap_err().message.contains("disconnected"));
+            assert!(
+                fixture
+                    .provider
+                    .complete_round(&fixture.request(&messages), &cancel, &mut |_| {})
+                    .unwrap_err()
+                    .message
+                    .contains("no action was replayed")
+            );
+            assert_stopped(pid, &work);
+        }
+
+        #[test]
+        fn cancellation_interrupts_a_stalled_tool_result_write() {
+            let mut fixture = Fixture::new();
+            fixture.config.max_context_bytes = 2 * 1024 * 1024;
+            let cancel = Cancellation::new();
+            let script = output(call(json!(17), "read-call", "inspect")) + "exec /bin/sleep 60\n";
+            let mut messages = vec![Message::text(MessageRole::User, "Synthetic request")];
+            let (pid, work) = fixture.park(&script, &mut messages, &cancel);
+            messages.push(Message::tool("read-call", &json!({"text":"x".repeat(1024 * 1024)})));
+            let stop = cancel.clone();
+            let stopper = std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(100));
+                stop.cancel();
+            });
+            let started = Instant::now();
+            let error = fixture.provider.complete_round(&fixture.request(&messages), &cancel, &mut |_| {}).unwrap_err();
+            stopper.join().unwrap();
+            assert_eq!(error.kind, ErrorKind::Cancelled);
+            assert!(started.elapsed() < Duration::from_secs(2));
+            assert_stopped(pid, &work);
+        }
+
+        #[test]
+        fn dropped_provider_kills_pending_children_and_waiting_count_is_bounded() {
+            let mut fixture = Fixture::new();
+            let cancel = Cancellation::new();
+            let mut children = Vec::new();
+            for index in 0..MAX_WAITING_EXCHANGES {
+                let mut messages = vec![Message::text(MessageRole::User, format!("Synthetic request {index}"))];
+                children.push(fixture.park(&waiting_script(&format!("call-{index}")), &mut messages, &cancel));
+            }
+            let mut exchange = fixture.exchange(&waiting_script("extra"), &cancel);
+            let (answer, id) = exchange.receive(&cancel, &mut |_| {}).unwrap();
+            assert!(
+                fixture
+                    .provider
+                    .keep_waiting(WaitingExchange {
+                        exchange,
+                        expected: vec![answer.clone()],
+                        call: answer.tool_calls.first().unwrap().clone(),
+                        request_id: id.unwrap(),
+                        cancel,
+                        expires: Instant::now() + Duration::from_secs(20),
+                    })
+                    .is_err()
+            );
+            // Drop the final owner, rather than invoking the explicit cleanup helper.
+            let options = fixture.provider.options.clone();
+            let provider = std::mem::replace(&mut fixture.provider, CodexProvider::new(options));
+            drop(provider);
+            for (pid, work) in children {
+                assert_stopped(pid, &work);
+            }
+        }
     }
 }

@@ -206,3 +206,82 @@ fn settings_operations_can_be_stopped_and_reloaded() {
     harness.run();
     assert!(matches!(harness.state().actions.last(), Some(Action::ReloadSettings)));
 }
+
+fn long_title_pane(busy: bool) -> State {
+    State {
+        available: true,
+        busy,
+        active_chat: Some("long-title".into()),
+        history: vec![ChatSummary {
+            id: "long-title".into(),
+            title: "Read the current document, make its heading bold, and explain which changes you made".into(),
+            interrupted: false,
+        }],
+        chat_route: "Codex / selected-chat-model".into(),
+        control_route: "Local / selected-control-model".into(),
+        target_label: "Synthetic acceptance document".into(),
+        status: busy.then(|| "Reading the current document…".into()),
+        draft: "Make the next heading bold".into(),
+        messages: vec![
+            Message::text(MessageRole::User, "Read the current document, make its heading bold, and explain which changes you made."),
+            Message::text(MessageRole::Assistant, "I am reading the current document before changing its heading."),
+        ],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn long_history_titles_keep_the_header_and_composer_inside_the_pane() {
+    use egui_kittest::kittest::Queryable as _;
+    for width in [280.0, 420.0, 700.0] {
+        for height in [480.0, 800.0] {
+            for busy in [false, true] {
+                let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(width, height)).build_ui_state(
+                    |ui, pane| {
+                        let _ = show(ui, Id::unique("long-title-assistant"), pane, str::to_owned);
+                    },
+                    long_title_pane(busy),
+                );
+                // Busy status includes a spinner, so it intentionally never settles.
+                harness.run_steps(3);
+                let new_chat = harness.get_by_label("New chat").rect();
+                let history = harness.get_by_role_and_label(egui::Role::ComboBox, "History").rect();
+                let label = harness.get_by_role_and_label(egui::Role::Label, "History").rect();
+                assert!(history.top() >= new_chat.bottom(), "history has its own row at {width}, busy {busy}");
+                assert!(label.right() < history.left(), "history label precedes the bounded field: {label:?}, {history:?}");
+                assert!(label.height() <= new_chat.height(), "history label stays on one line: {label:?}");
+                assert!(history.height() <= new_chat.height() + 1.0, "long title stays on one line: {history:?}");
+                assert!(history.bottom() - new_chat.top() <= 3.0 * new_chat.height(), "header stays compact: {new_chat:?}, {history:?}");
+                let composer = harness.get_by_role(egui::Role::MultilineTextInput).rect();
+                let stop = harness.get_by_label("Stop").rect();
+                assert!(composer.top() > history.bottom(), "composer follows the history row");
+                for rect in [history, label, composer, stop] {
+                    assert!(
+                        rect.left() >= 0.0 && rect.right() <= width + 0.5 && rect.bottom() <= height + 0.5,
+                        "{width} x {height}, busy {busy}: control leaves the pane: {rect:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "manual synthetic visual capture; writes PNGs to the temporary directory"]
+fn export_long_title_screenshots() {
+    for width in [280.0, 420.0] {
+        for busy in [false, true] {
+            let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(width, 600.0)).build_ui_state(
+                |ui, pane| {
+                    let _ = show(ui, Id::unique("long-title-capture"), pane, str::to_owned);
+                },
+                long_title_pane(busy),
+            );
+            harness.run_steps(3);
+            let phase = if busy { "busy" } else { "idle" };
+            let path = std::env::temp_dir().join(format!("craft-assistant-long-title-{width}-{phase}.png"));
+            harness.render().unwrap().save(&path).unwrap();
+            eprintln!("{}", path.display());
+        }
+    }
+}

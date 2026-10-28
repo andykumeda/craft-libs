@@ -120,14 +120,30 @@ pub fn show(ui: &mut Ui, id: Id, state: &mut State, translate: impl Fn(&str) -> 
 
 fn header(ui: &mut Ui, state: &mut State, tr: &impl Fn(&str) -> String, actions: &mut Vec<Action>) {
     ui.horizontal_wrapped(|ui| {
-        ui.add_enabled_ui(!state.busy, |ui| {
-            if ui.button(tr("New chat")).clicked() {
-                actions.push(Action::NewChat);
-            }
+        if ui.add_enabled(!state.busy, egui::Button::new(tr("New chat"))).clicked() {
+            actions.push(Action::NewChat);
+        }
+        if let Some(id) = &state.active_chat
+            && ui.add_enabled(!state.busy, egui::Button::new(tr("Delete chat"))).clicked()
+        {
+            actions.push(Action::DeleteChat(id.clone()));
+        }
+        if state.settings_open && state.busy && ui.button(tr("Stop")).clicked() {
+            actions.push(Action::Stop);
+        }
+        if ui.selectable_label(state.settings_open, tr("Settings")).clicked() {
+            state.settings_open = !state.settings_open;
+        }
+    });
+    ui.add_enabled_ui(!state.busy, |ui| {
+        ui.horizontal(|ui| {
+            // ComboBox::width is a minimum. Reserve the label first so a long selected title
+            // truncates within the remaining width instead of wrapping the label vertically.
+            let label = ui.label(tr("History"));
             let title = state.history.iter().find(|chat| Some(&chat.id) == state.active_chat.as_ref()).map(|chat| chat.title.clone());
-            crate::ComboBox::new("assistant_chats", tr("History"))
+            crate::ComboBox::from_id_salt("assistant_chats")
                 .selected_text(title.unwrap_or_else(|| tr("Saved chats")))
-                .width(140.0)
+                .width(ui.available_width())
                 .truncate()
                 .show_ui(ui, |ui| {
                     if state.history.is_empty() {
@@ -140,19 +156,10 @@ fn header(ui: &mut Ui, state: &mut State, tr: &impl Fn(&str) -> String, actions:
                             actions.push(Action::OpenChat(chat.id.clone()));
                         }
                     }
-                });
-            if let Some(id) = &state.active_chat
-                && ui.button(tr("Delete chat")).clicked()
-            {
-                actions.push(Action::DeleteChat(id.clone()));
-            }
+                })
+                .response
+                .labelled_by(label.id);
         });
-        if state.settings_open && state.busy && ui.button(tr("Stop")).clicked() {
-            actions.push(Action::Stop);
-        }
-        if ui.selectable_label(state.settings_open, tr("Settings")).clicked() {
-            state.settings_open = !state.settings_open;
-        }
     });
 }
 

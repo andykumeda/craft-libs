@@ -31,6 +31,12 @@ key. The storage API is blocking and must run on an application's worker, not it
 ## Codex adapter
 
 Route a connection whose provider is `codex` to `CodexProvider::new(CodexOptions::in_shared_root(root))`.
+Create one provider per active `run_turn` invocation, including its nested chat/control exchanges.
+Drop it and every clone on all success/error exits, or cancel that turn's token on every exit.
+This is a portable host integration obligation: a host or orchestration error can finish a turn
+without another provider call, leaving a reused provider's parked workers alive until expiry.
+WordCraft already constructs and drops its provider inside each turn worker.
+
 `CodexOptions::in_shared_root` reads `CRAFT_CODEX_BINARY` when set; otherwise it resolves `codex`
 from `PATH`. Set an absolute path for installations outside the application's `PATH`. An empty or
 missing selected executable fails explicitly without substituting another runtime. `CodexOptions`
@@ -48,11 +54,21 @@ roots, or proxy/provider configuration. Existing coding-session configuration is
   inference. The provider implements the shared `ChatProvider::complete` interface for streamed
   text and identified tool requests. Before sending any caller-supplied context, `complete` calls
   `verify_compatibility(connection, model, config, cancellation)` with synthetic data only.
-- Each model round uses a new ephemeral thread and bounded canonical transcript. A dynamic tool
-  request must match its thread, turn, and registered tool name. The worker exits before the host
-  executes the call; the next round starts with the recorded tool result. This avoids depending
-  on the unsupported `thread/resume.history` interface. It trades some startup overhead for a
-  single app-owned transcript and no pending calls left inside another process.
+- Each active chat/control exchange uses one ephemeral thread with bounded initial canonical
+  context. A dynamic tool request must match its thread, turn, registered name, unique call ID,
+  and valid JSON-RPC request ID. Craft records and dispatches the call; the next provider request
+  supplies its result through the original JSON-RPC response, continuing the same Codex turn.
+  The exact prior transcript, call ID, connection, model, tool catalog, runtime limits and executable
+  identity must still match. A changed or missing continuation fails without starting another
+  thread or replaying a result. Craft remains the canonical history owner; no ephemeral thread
+  is resumed after an interruption or loaded from `thread/resume.history`.
+- A provider retains at most two waiting exchanges, allowing chat delegation to wait while app
+  control uses another worker, even when both roles select the same model. Compatibility probes
+  have separate ephemeral state. Waiting workers are killed on cancellation, expiry or final
+  provider drop; every continuation error clears the remaining workers. Parked expiry uses the
+  configured request timeout multiplied by the round limit, allowing delegated work to finish.
+  Active reads and pipe writes have fixed request deadlines and cancellation checks. A new round
+  returns only newly streamed text, preserving earlier text in Craft's transcript.
 - Cancellation checks interrupt waiting and kill the owned process. Disconnects, rejected requests,
   and uncertain outcomes are reported without automatic retry.
 
@@ -73,8 +89,9 @@ Before inference, `verify_compatibility` requires all of the following:
    connection failure (curl status 7) without reaching the listener. Startup failures do not
    count as network-denial proof. All child processes have bounded, cancellable waits.
 3. The isolated account must be signed in. The selected model must call exactly one synthetic
-   dynamic tool with the supplied challenge, then correctly consume its recorded result in a
-   new ephemeral thread. The test has no host adapter, document, file grants or edit command.
+   dynamic tool with the supplied challenge, then consume its actual protocol result and return
+   its confirmation in the same turn. Tools remain available and no extra user prompt directs
+   the continuation. The test has no host adapter, document, file grants or edit command.
    Only synthetic messages are sent, with the configured request/context/response limits.
 
 Failures leave inference disabled with an explicit error. No flag or persisted acceptance file
@@ -140,3 +157,25 @@ unfiltered `cargo test --workspace` passed (1,831 passed, 28 ignored). Core and 
 Nine focused Codex tests passed; the ignored installed-runtime read/write/network probe
 passed separately with the new isolated environment. Logs use the
 `/private/tmp/craft-assistant-home-` prefix; see the implementation ledger for exact paths.
+
+## Codex tool continuation repair — 2026-10-28
+
+A live synthetic WordCraft request exposed a transport defect after sign-in succeeded: chat
+delegated correctly, but control repeated eleven successful document reads and reached its round
+limit without editing. The adapter previously killed each worker at its first tool call and sent
+tool records as JSON user text to a new thread. The old compatibility probe forced its second
+answer with another user instruction and no tools, so it did not test normal continuation.
+
+The adapter now replies to dynamic tool requests in the same ephemeral turn, with exact canonical
+prefix/configuration matching, bounded retained workers, cancellation and no result replay.
+Synthetic subprocess regression tests cover read/edit/read-back, nested chat/control resumption,
+separate JSON-RPC IDs and call IDs, seven mismatch classes, refusal, disconnect, duplicate IDs,
+blocked pipe cancellation, provider drop and the two-exchange limit.
+
+Focused verification passed: `cargo test -p craft-ai-native` (45 passed, 2 pre-existing live tests
+ignored), `cargo clippy -p craft-ai-native --all-targets -- -D warnings`, and native package format
+checking. Evidence: `/private/tmp/craft-codex-continuation-native-all-tests.log` and
+`/private/tmp/craft-codex-continuation-clippy.log`. Initial strict Clippy identified one denied
+macro in a new test; it was removed before the passing run. Combined shared-library gates and
+repaired-preview live Codex editing remain pending at this checkpoint. No credentials were read
+or copied and no live inference was run for this repair's focused verification.
