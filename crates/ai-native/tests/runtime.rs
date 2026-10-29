@@ -391,11 +391,20 @@ fn app_control_has_document_context_before_its_first_answer() {
     impl ChatProvider for ContextProvider {
         fn complete(&self, request: &ModelRequest<'_>, _: &Cancellation, _: &mut dyn FnMut(&str)) -> Result<Message, AiError> {
             if request.model.as_str() == "control-model" {
+                if request.messages.last().unwrap().tool_call_id.as_deref() == Some("provider-read") {
+                    assert_eq!(request.messages.last().unwrap().role, MessageRole::Tool);
+                    return Ok(Message::text(MessageRole::Assistant, "Document inspected."));
+                }
+                assert_eq!(
+                    request.messages.last().unwrap().role,
+                    MessageRole::User,
+                    "host context must start a control request, not resume a provider callback"
+                );
                 assert!(
                     request.messages.iter().any(|message| message.role == MessageRole::Tool),
                     "app control must receive the initial document read before it can answer"
                 );
-                return Ok(Message::text(MessageRole::Assistant, "Document inspected."));
+                return Ok(call("provider-read", "inspect_document", json!({})));
             }
             if request.messages.iter().any(|message| message.role == MessageRole::Tool) {
                 Ok(Message::text(MessageRole::Assistant, "Done."))
@@ -411,7 +420,45 @@ fn app_control_has_document_context_before_its_first_answer() {
     let mut req = request();
     req.messages = vec![Message::text(MessageRole::User, "remove the dark background")];
     let result = run_turn(req, &ContextProvider, &mut host, &Cancellation::new(), |_| {}).unwrap();
-    assert_eq!(host.calls, 1);
+    assert_eq!(host.calls, 2);
     let result = result.iter().find(|message| message.role == MessageRole::Tool).unwrap();
     assert_eq!(serde_json::from_str::<Value>(&result.content).unwrap()["activity"][0]["call"]["name"], "inspect_document");
+}
+
+/// Read-only live transport check; uses only synthetic host data, never an app document/history.
+#[test]
+#[ignore = "requires explicit CRAFT_AI_CONFIG_DIR with a signed-in Codex chat binding"]
+fn live_codex_host_context_starts_and_continues() {
+    use craft_ai_native::codex::{CodexOptions, CodexProvider};
+    use craft_ai_native::storage::SharedStore;
+    let root = std::path::PathBuf::from(std::env::var_os("CRAFT_AI_CONFIG_DIR").expect("set explicit live configuration"));
+    assert!(root.is_absolute());
+    let store = SharedStore::new(root.clone());
+    let (chat, _) = craft_ai_native::resolve_choices(&store.load().unwrap(), &AppId::new("wordcraft").unwrap()).unwrap();
+    assert_eq!(chat.connection.provider, "codex");
+    let mut req = request();
+    req.chat = chat.clone();
+    req.control = chat;
+    req.config = store.config().unwrap();
+    req.messages = vec![Message::text(
+        MessageRole::User,
+        "Use control_app to inspect the bound synthetic document and report whether its ok flag is true. Do not modify anything.",
+    )];
+    let provider = CodexProvider::new(CodexOptions::in_shared_root(&root));
+    let mut host = Host { tool: "inspect_document", calls: 0, cancel_on_list: false };
+    let start = std::time::Instant::now();
+    let mut control_used = false;
+    let result = run_turn(req, &provider, &mut host, &Cancellation::new(), |event| {
+        if let TurnEvent::Routed { role: craft_ai_core::assistant::AssistantRole::Control, .. } = event {
+            control_used = true;
+        }
+    });
+    eprintln!(
+        "live Codex host-context probe: elapsed_secs={:.3} completed={} reads={} control_used={control_used}",
+        start.elapsed().as_secs_f64(),
+        result.is_ok(),
+        host.calls
+    );
+    assert!(result.is_ok(), "{}", result.unwrap_err());
+    assert!(host.calls >= 1 && control_used);
 }

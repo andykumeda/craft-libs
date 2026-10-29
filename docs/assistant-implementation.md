@@ -269,3 +269,22 @@ passed. Logs: `/private/tmp/craft-initial-context-{red,green,tests,clippy}.log`.
 model bindings, credentials or global context settings changed. Consumer A/B acceptance and
 packaged delivery remain pending; privacy separation is an owner's soft preference, not an
 implemented local-only document route.
+
+### Codex initial-context start correction
+
+The consumer's real pre-deployment model test caught a gap missed by the mock regression:
+host-initialized context ended in a Tool message, which Codex correctly treated as a callback
+continuation despite having no corresponding provider callback. That candidate was not deployed.
+After the initial host read, the runtime now repeats the authorized task as a User message to
+start control inference. Genuine subsequent provider tool results still remain Tool messages
+and retain exact continuation validation. A deterministic regression first failed on the old
+shape and now checks both the initial User shape and later Tool continuation.
+
+The opt-in `live_codex_host_context_starts_and_continues` test passed with synthetic read-only
+host data using the configured Codex account: **20.310 seconds, two reads, control inference
+used, completed normally**. No application document or chat history was read. This is transport
+acceptance, not full document-edit/save/Undo acceptance. Log:
+`/private/tmp/craft-host-context-codex-live.log`. Native tests passed **49 / 3 ignored / 0 failed**;
+all-target native Clippy, workspace format and diff checks passed. Final logs:
+`/private/tmp/craft-host-context-start-final-{tests,clippy}.log`. Owner directed Codex-first
+consumer acceptance before proceeding to Qwen; no Qwen routing changes are included.

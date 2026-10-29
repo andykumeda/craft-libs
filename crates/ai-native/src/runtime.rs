@@ -301,6 +301,7 @@ impl Run<'_> {
             message
         });
         loop {
+            let host_context = initial_read.is_some();
             let answer = match initial_read.take() {
                 Some(read) => read,
                 None => self.response(AssistantRole::Control, &messages, &tools)?,
@@ -351,6 +352,10 @@ impl Run<'_> {
                 }
                 (self.emit)(TurnEvent::ToolFinished { id: call.id.clone(), result: result.clone() });
                 messages.push(Message::tool(call.id, &result));
+            }
+            if host_context {
+                // Host context has no provider callback to resume; begin inference with the task.
+                messages.push(Message::text(MessageRole::User, task));
             }
         }
     }
