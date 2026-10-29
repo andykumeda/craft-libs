@@ -8,4 +8,6 @@ pub mod secrets;
 pub mod storage;
 
 pub use http::HttpProvider;
-pub use runtime::{Cancellation, ChatProvider, ModelChoice, ModelRequest, ToolHost, TurnEvent, TurnRequest, resolve_choices, run_turn, verify_model};
+pub use runtime::{
+    Cancellation, ChatProvider, ModelChoice, ModelRequest, ToolHost, TurnEvent, TurnRequest, resolve_choice, resolve_choices, run_turn, verify_model,
+};

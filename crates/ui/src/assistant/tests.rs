@@ -294,7 +294,7 @@ fn settings_focus_on_models_and_keep_connection_details_opt_in() {
         actions: Vec<Action>,
     }
     let mut state = configured();
-    state.control.app_override = true;
+    state.chat.app_override = true;
     let saved = state.store.clone();
     let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(420.0, 1000.0)).build_ui_state(
         |ui, view: &mut View| view.actions.extend(settings(ui, Id::unique("simple-settings"), &mut view.settings, str::to_owned)),
@@ -305,7 +305,7 @@ fn settings_focus_on_models_and_keep_connection_details_opt_in() {
     harness.get_by_label("Apply for this app").click();
     harness.run();
     assert!(matches!(harness.state().actions.last(), Some(Action::SaveBinding {
-        role: AssistantRole::Control, app_override: true, model, ..
+        role: AssistantRole::Chat, app_override: true, model, ..
     }) if model == "local-tools"));
     assert_eq!(harness.state().settings.store, saved, "drawing/applying waits for host acknowledgement");
     harness.get_by_label("Add or edit a connection").click();
@@ -320,4 +320,36 @@ fn settings_focus_on_models_and_keep_connection_details_opt_in() {
     assert!(harness.query_by_label("Model to verify").is_some());
     assert_eq!(harness.state().settings.store, saved);
     assert_eq!(harness.state().actions.len(), 1, "expanding settings never sends a provider request");
+}
+
+#[test]
+fn one_model_choice_handles_chat_and_documents_without_showing_legacy_roles() {
+    use egui_kittest::kittest::Queryable as _;
+    let mut settings = configured();
+    settings.control.model = "legacy-control-model".into();
+    let saved = settings.store.clone();
+    let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(420.0, 900.0)).build_ui_state(
+        |ui, pane| {
+            let _ = show(ui, Id::unique("one-model-assistant"), pane, str::to_owned);
+        },
+        State {
+            available: true,
+            chat_route: "Local / local-tools".into(),
+            control_route: "Legacy provider / legacy-control-model".into(),
+            settings,
+            ..Default::default()
+        },
+    );
+    assert!(harness.query_by_label("Model: Local / local-tools").is_some());
+    assert!(harness.query_by_label("General chat: Local / local-tools").is_none());
+    assert!(harness.query_by_label("App control: Legacy provider / legacy-control-model").is_none());
+    harness.get_by_label("Settings").click();
+    harness.run();
+    assert_eq!(harness.query_all_by_role_and_label(egui::Role::ComboBox, "Model").count(), 1);
+    assert_eq!(harness.query_all_by_role_and_label(egui::Role::ComboBox, "Connection").count(), 1);
+    assert!(harness.query_by_label("General chat").is_none());
+    assert!(harness.query_by_label("App control").is_none());
+    assert!(harness.query_by_label("Choose one model for chat and document work.").is_some());
+    assert_eq!(harness.state().settings.control.model, "legacy-control-model");
+    assert_eq!(harness.state().settings.store, saved, "hiding the legacy choice never mutates saved settings");
 }

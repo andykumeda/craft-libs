@@ -1,6 +1,6 @@
 # Assistant native services
 
-Status: implemented, integration in progress. Last checked: 2026-10-28.
+Status: unified-model shared checkpoint verified; consumer delivery pending. Last checked: 2026-10-29.
 
 `craft-ai-native` keeps shared connections, local chat histories, credentials, and Codex process
 management outside application engines. It imports the portable `craft-ai-core::assistant`
@@ -31,8 +31,10 @@ key. The storage API is blocking and must run on an application's worker, not it
 ## Codex adapter
 
 Route a connection whose provider is `codex` to `CodexProvider::new(CodexOptions::in_shared_root(root))`.
-Create one provider per active `run_turn` invocation, including its nested chat/control exchanges.
-Drop it and every clone on all success/error exits, or cancel that turn's token on every exit.
+Create or `fork_turn()` one provider per active `run_turn` invocation, including any legacy
+nested exchanges. A long-lived template may retain successful synthetic runtime proofs; a fork
+starts with empty callback state and requires a fresh isolated-account check. Drop the turn
+provider and every clone on all success/error exits, or cancel that turn's token on every exit.
 This is a portable host integration obligation: a host or orchestration error can finish a turn
 without another provider call, leaving a reused provider's parked workers alive until expiry.
 WordCraft already constructs and drops its provider inside each turn worker.
@@ -95,9 +97,13 @@ Before inference, `verify_compatibility` requires all of the following:
    Only synthetic messages are sent, with the configured request/context/response limits.
 
 Failures leave inference disabled with an explicit error. No flag or persisted acceptance file
-bypasses these checks. Successful checks are cached in memory for the provider instance, resolved
-executable path/size/modification time, exact model, and runtime limits. Clones share that cache;
-new instances or changed identities recheck. Effective policy is still checked on every worker.
+bypasses these checks. Successful containment and callback proofs are cached only in memory,
+keyed by resolved executable path/size/modification time, exact model, and runtime limits. Clones
+and `fork_turn()` share that proof cache; a separately constructed provider or changed identity
+rechecks it. Each fork has independent waiting exchanges and per-turn verification state, so it
+checks isolated-account sign-in before application context is sent even when a runtime proof is
+cached. Effective policy is still checked on every worker. The cache is bounded and is never
+persisted; it does not retain a document, conversation or tool callback between turns.
 Login and catalog discovery remain available so an unverified connection can be configured.
 
 The public app-server API has no dynamic-tools-only allowlist: residual built-in tools are
@@ -189,12 +195,38 @@ document data in a normal tool message. Hosts retain target/file authorization. 
 does not invoke the hook. This avoids accepting an empty-activity denial of document access
 from a model that never requested inspection; it does not guarantee the model can finish an edit.
 
-## Identical model selections
+## Legacy identical model selections
 
-When General chat and App control resolve to the identical connection and model, the runtime
+For consumers of the compatibility two-role request, when General chat and App control resolve to the identical connection and model, the runtime
 uses one bounded tool loop instead of delegating to the same model and then summarizing back
 through it. It exposes the host's scoped tool catalog directly. General questions do not
 automatically read document data; actual tool calls still pass the host's document/file guards.
 The shared dispatch path retains cancellation, whole-batch validation, durable outcome
 checkpoints, response/context bounds and no-replay handling. Different selections retain the
 separate control_app route and host-initialized document context. No provider fallback occurs.
+
+## Unified model checkpoint — 2026-10-29
+
+The shared pane now presents one **Assistant model** selection for questions and document work,
+with one `Model:` route in its header. Existing connection management supports the OpenAI
+subscription (Codex) connection, local Ollama and compatible API connections, including
+OpenRouter. Model discovery, tool verification, credential references, per-app overrides and
+suite defaults retain their existing paths; no model or endpoint is silently substituted.
+
+`resolve_choice(store, app)` resolves the canonical `AssistantRole::Chat` / `assistant.chat`
+binding. The saved legacy Control binding remains intact but is not a fallback or a second
+setting in the unified pane. The older `resolve_choices` and two-role `TurnRequest` remain
+compatibility APIs. A unified consumer supplies the one resolved choice for both request fields
+to select the existing direct tool loop. Host authorization, cancellation, checkpointing,
+whole-batch validation and no-replay safeguards still apply. Document data is supplied through
+scoped tool calls when needed; unrelated general prompts do not automatically read it.
+
+Current focused verification passed: native tests **56 passed / 5 ignored**, UI tests
+**465 passed / 2 ignored**, native/UI all-target Clippy with warnings denied, and core/UI WASM
+checking. Regressions cover a single visible selector/route, preservation of legacy bindings,
+canonical Chat resolution without Control fallback, isolated callback state per fork and a fresh
+account check despite cached runtime proof. A live synthetic Codex transport probe measured
+**14.748 seconds cold / 8.531 seconds warm**. These are transport-probe observations, not a
+document-edit benchmark or evidence of panel/external-client performance parity. Consumer
+edit/save/reopen/Undo, same-fixture model comparisons and packaged delivery remain separate
+gates recorded in the WordCraft consumer ledger.

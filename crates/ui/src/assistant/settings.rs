@@ -68,8 +68,9 @@ pub fn settings(ui: &mut Ui, id: Id, state: &mut SettingsState, translate: impl 
     let mut actions = Vec::new();
     ui.push_id(id, |ui| {
         ui.heading(translate("Assistant settings"));
-        ui.label(translate("Choose a model for conversation and a model for document edits."));
-        ui.small(translate("Document requests may send relevant content to both selected providers."));
+        ui.label(translate("Choose one model for chat and document work."));
+        ui.small(translate("Document requests send relevant content to the selected provider."));
+        ui.small(translate("Changing providers also sends this chat's history. Start a new chat to keep earlier context separate."));
         if let Some(error) = &state.error {
             ui.colored_label(ui.visuals().error_fg_color, error);
         }
@@ -81,14 +82,14 @@ pub fn settings(ui: &mut Ui, id: Id, state: &mut SettingsState, translate: impl 
         }
         ui.add_enabled_ui(!state.busy, |ui| {
             if state.store.connections.is_empty() {
-                ui.label(translate("Add a connection below, then choose your models."));
+                ui.label(translate("Add a connection below, then choose your model."));
             } else {
-                roles(ui, state, &translate, &mut actions);
+                model_selection(ui, state, &translate, &mut actions);
                 ui.separator();
             }
             egui::CollapsingHeader::new(translate("Add or edit a connection")).default_open(state.store.connections.is_empty()).show(ui, |ui| {
-                ui.small(translate("Connections are shared across Craft apps. Saving a connection does not change your selected models."));
-                egui::CollapsingHeader::new(translate("Codex account")).show(ui, |ui| {
+                ui.small(translate("Connections are shared across Craft apps. Saving a connection does not change your selected model."));
+                egui::CollapsingHeader::new(translate("OpenAI subscription (Codex)")).show(ui, |ui| {
                     codex(ui, state, &translate, &mut actions);
                 });
                 egui::CollapsingHeader::new(translate("API or local server")).show(ui, |ui| {
@@ -108,91 +109,85 @@ pub fn settings(ui: &mut Ui, id: Id, state: &mut SettingsState, translate: impl 
     actions
 }
 
-fn roles(ui: &mut Ui, state: &mut SettingsState, tr: &impl Fn(&str) -> String, actions: &mut Vec<Action>) {
+fn model_selection(ui: &mut Ui, state: &mut SettingsState, tr: &impl Fn(&str) -> String, actions: &mut Vec<Action>) {
     let can_override = state.app_id.is_some();
-    for (role, edit) in [(AssistantRole::Chat, &mut state.chat), (AssistantRole::Control, &mut state.control)] {
-        ui.push_id(role.id(), |ui| {
-            ui.strong(tr(match role {
-                AssistantRole::Chat => "General chat",
-                AssistantRole::Control => "App control",
-            }));
-            ui.small(tr(match role {
-                AssistantRole::Chat => "Answers questions and delegates document work.",
-                AssistantRole::Control => "Reads and edits the document when asked.",
-            }));
-            let picked = state.store.connections.iter().find(|connection| connection.id.as_str() == edit.connection);
-            let connection_label = ui.label(tr("Connection"));
-            crate::ComboBox::from_id_salt("connection")
-                .width(ui.available_width())
-                .selected_text(picked.map(|connection| connection.label.clone()).unwrap_or_else(|| tr("Choose connection")))
-                .truncate()
-                .show_ui(ui, |ui| {
-                    for connection in state.store.connections.iter().filter(|connection| connection.enabled) {
-                        if ui.selectable_label(connection.id.as_str() == edit.connection, &connection.label).clicked() {
-                            edit.connection = connection.id.as_str().into();
-                            edit.model.clear();
+    let role = AssistantRole::Chat;
+    let edit = &mut state.chat;
+    ui.push_id(role.id(), |ui| {
+        ui.strong(tr("Assistant model"));
+        ui.small(tr("Answers questions and uses document tools in the same conversation."));
+        let picked = state.store.connections.iter().find(|connection| connection.id.as_str() == edit.connection);
+        let connection_label = ui.label(tr("Connection"));
+        crate::ComboBox::from_id_salt("connection")
+            .width(ui.available_width())
+            .selected_text(picked.map(|connection| connection.label.clone()).unwrap_or_else(|| tr("Choose connection")))
+            .truncate()
+            .show_ui(ui, |ui| {
+                for connection in state.store.connections.iter().filter(|connection| connection.enabled) {
+                    if ui.selectable_label(connection.id.as_str() == edit.connection, &connection.label).clicked() {
+                        edit.connection = connection.id.as_str().into();
+                        edit.model.clear();
+                        edit.manual_tools = false;
+                    }
+                }
+            })
+            .response
+            .labelled_by(connection_label.id);
+        let connection = state.store.connections.iter().find(|connection| connection.id.as_str() == edit.connection);
+        let model_label = ui.label(tr("Model"));
+        crate::ComboBox::from_id_salt("model")
+            .width(ui.available_width())
+            .selected_text(if edit.model.is_empty() { tr("Choose model") } else { edit.model.clone() })
+            .truncate()
+            .show_ui(ui, |ui| {
+                if let Some(connection) = connection {
+                    for model in &connection.models {
+                        let tools = model.capabilities.iter().any(|spec| spec.features.tools && spec.features.streaming);
+                        let label = if tools { model.label.clone() } else { format!("{} · {}", model.label, tr("Tools unverified")) };
+                        if ui.selectable_label(model.id.as_str() == edit.model, label).clicked() {
+                            edit.model = model.id.as_str().into();
                             edit.manual_tools = false;
                         }
                     }
-                })
-                .response
-                .labelled_by(connection_label.id);
-            let connection = state.store.connections.iter().find(|connection| connection.id.as_str() == edit.connection);
-            let model_label = ui.label(tr("Model"));
-            crate::ComboBox::from_id_salt("model")
-                .width(ui.available_width())
-                .selected_text(if edit.model.is_empty() { tr("Choose model") } else { edit.model.clone() })
-                .truncate()
-                .show_ui(ui, |ui| {
-                    if let Some(connection) = connection {
-                        for model in &connection.models {
-                            let tools = model.capabilities.iter().any(|spec| spec.features.tools && spec.features.streaming);
-                            let label = if tools { model.label.clone() } else { format!("{} · {}", model.label, tr("Tools unverified")) };
-                            if ui.selectable_label(model.id.as_str() == edit.model, label).clicked() {
-                                edit.model = model.id.as_str().into();
-                                edit.manual_tools = false;
-                            }
-                        }
-                    }
-                })
-                .response
-                .labelled_by(model_label.id);
-            let verified = connection
-                .and_then(|connection| connection.models.iter().find(|model| model.id.as_str() == edit.model))
-                .is_some_and(|model| model.capabilities.iter().any(|spec| spec.features.tools && spec.features.streaming));
-            egui::CollapsingHeader::new(tr("Advanced model options")).show(ui, |ui| {
-                let label = ui.label(tr("Custom model ID"));
-                if ui.add(egui::TextEdit::singleline(&mut edit.model).hint_text(tr("Or enter a model ID"))).labelled_by(label.id).changed() {
-                    edit.manual_tools = false;
                 }
-                ui.add_enabled(can_override, egui::Checkbox::new(&mut edit.app_override, tr("Override for this app")));
-                if ui.add_enabled(can_override, egui::Button::new(tr("Use suite default"))).clicked() {
-                    actions.push(Action::UseSuiteDefault { role });
-                }
-            });
-            if !edit.model.trim().is_empty() && !verified {
-                ui.checkbox(&mut edit.manual_tools, tr("I confirm this model supports streaming and tool calls"));
-                ui.small(tr("Use connection settings below to verify tool support before applying."));
+            })
+            .response
+            .labelled_by(model_label.id);
+        let verified = connection
+            .and_then(|connection| connection.models.iter().find(|model| model.id.as_str() == edit.model))
+            .is_some_and(|model| model.capabilities.iter().any(|spec| spec.features.tools && spec.features.streaming));
+        egui::CollapsingHeader::new(tr("Advanced model options")).show(ui, |ui| {
+            let label = ui.label(tr("Custom model ID"));
+            if ui.add(egui::TextEdit::singleline(&mut edit.model).hint_text(tr("Or enter a model ID"))).labelled_by(label.id).changed() {
+                edit.manual_tools = false;
             }
-            ui.small(tr(if edit.app_override { "Changes affect this app only." } else { "Changes set the default for all Craft apps." }));
-            let ready = connection.is_some_and(|connection| connection.enabled) && !edit.model.trim().is_empty() && (verified || edit.manual_tools);
-            ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add_enabled(ready, egui::Button::new(tr(if edit.app_override { "Apply for this app" } else { "Apply for all Craft apps" })))
-                    .clicked()
-                {
-                    actions.push(Action::SaveBinding {
-                        role,
-                        connection: edit.connection.clone(),
-                        model: edit.model.trim().into(),
-                        app_override: edit.app_override,
-                        manual_tools: edit.manual_tools,
-                    });
-                }
-            });
-            ui.add_space(8.0);
+            ui.add_enabled(can_override, egui::Checkbox::new(&mut edit.app_override, tr("Override for this app")));
+            if ui.add_enabled(can_override, egui::Button::new(tr("Use suite default"))).clicked() {
+                actions.push(Action::UseSuiteDefault { role });
+            }
         });
-    }
+        if !edit.model.trim().is_empty() && !verified {
+            ui.checkbox(&mut edit.manual_tools, tr("I confirm this model supports streaming and tool calls"));
+            ui.small(tr("Use connection settings below to verify tool support before applying."));
+        }
+        ui.small(tr(if edit.app_override { "Changes affect this app only." } else { "Changes set the default for all Craft apps." }));
+        let ready = connection.is_some_and(|connection| connection.enabled) && !edit.model.trim().is_empty() && (verified || edit.manual_tools);
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .add_enabled(ready, egui::Button::new(tr(if edit.app_override { "Apply for this app" } else { "Apply for all Craft apps" })))
+                .clicked()
+            {
+                actions.push(Action::SaveBinding {
+                    role,
+                    connection: edit.connection.clone(),
+                    model: edit.model.trim().into(),
+                    app_override: edit.app_override,
+                    manual_tools: edit.manual_tools,
+                });
+            }
+        });
+        ui.add_space(8.0);
+    });
 }
 
 fn connections(ui: &mut Ui, state: &mut SettingsState, tr: &impl Fn(&str) -> String, actions: &mut Vec<Action>) {
@@ -285,8 +280,8 @@ fn connections(ui: &mut Ui, state: &mut SettingsState, tr: &impl Fn(&str) -> Str
 }
 
 fn codex(ui: &mut Ui, state: &SettingsState, tr: &impl Fn(&str) -> String, actions: &mut Vec<Action>) {
-    ui.strong(tr("Codex account"));
-    ui.small(tr("Craft uses a separate sign-in and configuration from your coding tools."));
+    ui.strong(tr("OpenAI subscription (Codex)"));
+    ui.small(tr("Uses your OpenAI subscription through Codex, with a separate Craft sign-in and configuration."));
     if !state.codex_status.is_empty() {
         ui.label(&state.codex_status);
     }

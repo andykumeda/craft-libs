@@ -35,6 +35,7 @@ pub struct State {
     pub status: Option<String>,
     pub error: Option<String>,
     pub chat_route: String,
+    /// Legacy host status; the unified pane displays only chat_route.
     pub control_route: String,
     pub target_label: String,
     pub authorized_files: Vec<String>,
@@ -164,10 +165,8 @@ fn header(ui: &mut Ui, state: &mut State, tr: &impl Fn(&str) -> String, actions:
 }
 
 fn routes(ui: &mut Ui, state: &State, tr: &impl Fn(&str) -> String) {
-    for (label, value) in [("General chat", &state.chat_route), ("App control", &state.control_route)] {
-        let value = if value.is_empty() { tr("Not configured") } else { value.clone() };
-        ui.small(format!("{}: {value}", tr(label)));
-    }
+    let value = if state.chat_route.is_empty() { tr("Not configured") } else { state.chat_route.clone() };
+    ui.small(format!("{}: {value}", tr("Model")));
     if !state.target_label.is_empty() {
         ui.small(craft_i18n::fmt(&tr("Document: {name}"), &[("name", &state.target_label)]));
     }

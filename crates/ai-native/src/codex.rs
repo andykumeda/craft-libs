@@ -62,7 +62,7 @@ impl CodexOptions {
 
 /// Codex transport for one active assistant turn, including nested chat/control exchanges.
 ///
-/// Construct one provider per `run_turn` invocation and drop it (including all clones) on every
+/// Construct or fork one provider per `run_turn` invocation and drop it (including all clones) on every
 /// success or error exit. Alternatively, cancel that turn's token on every exit. A host or
 /// orchestrator error may end a turn without another provider call, so reusing a provider without
 /// this cleanup can retain parked workers until expiry. WordCraft uses per-turn ownership.
@@ -70,6 +70,7 @@ impl CodexOptions {
 pub struct CodexProvider {
     options: CodexOptions,
     verified: Arc<Mutex<Vec<CompatibilityIdentity>>>,
+    turn_verified: Arc<Mutex<Vec<CompatibilityIdentity>>>,
     waiting: Arc<Mutex<WaitingExchanges>>,
 }
 
@@ -492,13 +493,40 @@ impl RpcClient {
     }
 }
 
+fn remember_verification(cache: &Mutex<Vec<CompatibilityIdentity>>, identity: CompatibilityIdentity) -> Result<(), AiError> {
+    let mut verified = cache.lock().map_err(|_| protocol("Codex compatibility state is unavailable."))?;
+    if verified.len() >= 64 {
+        verified.clear();
+    }
+    if !verified.contains(&identity) {
+        verified.push(identity);
+    }
+    Ok(())
+}
+
 impl CodexProvider {
     pub fn new(options: CodexOptions) -> Self {
-        Self { options, verified: Arc::new(Mutex::new(Vec::new())), waiting: Arc::new(Mutex::new(WaitingExchanges::default())) }
+        Self {
+            options,
+            verified: Arc::new(Mutex::new(Vec::new())),
+            turn_verified: Arc::new(Mutex::new(Vec::new())),
+            waiting: Arc::new(Mutex::new(WaitingExchanges::default())),
+        }
+    }
+
+    /// Start a separate turn sharing only successful runtime proofs, never callbacks or auth checks.
+    pub fn fork_turn(&self) -> Self {
+        Self {
+            options: self.options.clone(),
+            verified: self.verified.clone(),
+            turn_verified: Arc::new(Mutex::new(Vec::new())),
+            waiting: Arc::new(Mutex::new(WaitingExchanges::default())),
+        }
     }
 
     /// Validate synthetic callback/continuation and containment before sending application content.
-    /// Success is held only in memory for this provider, executable metadata, model and limits.
+    /// Runtime proofs are memory-only and keyed by executable metadata, model and limits.
+    /// A forked turn rechecks sign-in before any application context is sent.
     pub fn verify_compatibility(
         &self,
         connection: &Connection,
@@ -509,32 +537,32 @@ impl CodexProvider {
         config.validate()?;
         cancel.check()?;
         let identity = CompatibilityIdentity::current(&self.options, model, config)?;
-        if self.verified.lock().map_err(|_| protocol("Codex compatibility state is unavailable."))?.contains(&identity) {
+        if self.turn_verified.lock().map_err(|_| protocol("Codex compatibility state is unavailable."))?.contains(&identity) {
             return Ok(());
         }
-        self.verify_isolation(config, cancel)?;
+        let cached = self.verified.lock().map_err(|_| protocol("Codex compatibility state is unavailable."))?.contains(&identity);
+        if !cached {
+            self.verify_isolation(config, cancel)?;
+        }
         if !self.signed_in(config, cancel)? {
             return Err(AiError::new(
                 ErrorKind::Auth,
                 "Sign in to Craft's isolated Codex account before its compatibility check. No document content was sent.",
             ));
         }
-        // The gate has a separate ephemeral exchange, never a live application continuation.
-        let probe = Self::new(self.options.clone());
-        verify_callback_rounds(|messages, tools| {
-            probe.complete_round(&ModelRequest { connection, model, messages, tools, config }, cancel, &mut |_| {})
-        })?;
+        if !cached {
+            // The gate has a separate ephemeral exchange, never a live application continuation.
+            let probe = Self::new(self.options.clone());
+            verify_callback_rounds(|messages, tools| {
+                probe.complete_round(&ModelRequest { connection, model, messages, tools, config }, cancel, &mut |_| {})
+            })?;
+        }
         cancel.check()?;
         if identity != CompatibilityIdentity::current(&self.options, model, config)? {
             return Err(AiError::unsupported("The Codex executable changed during compatibility checks. Test the connection again."));
         }
-        let mut verified = self.verified.lock().map_err(|_| protocol("Codex compatibility state is unavailable."))?;
-        if verified.len() >= 64 {
-            verified.clear();
-        }
-        if !verified.contains(&identity) {
-            verified.push(identity);
-        }
+        remember_verification(&self.verified, identity.clone())?;
+        remember_verification(&self.turn_verified, identity)?;
         Ok(())
     }
 
@@ -1139,6 +1167,59 @@ mod tests {
         assert!(!error.message.contains("synthetic-caller-document-sentinel"));
         assert!(emitted.is_empty());
         assert!(provider.verified.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn new_turn_shares_runtime_proof_but_not_auth_or_callbacks() {
+        let provider = CodexProvider::new(CodexOptions { binary: std::env::current_exe().unwrap(), home: std::env::temp_dir() });
+        let identity =
+            CompatibilityIdentity::current(&provider.options, &ModelId::new("synthetic-model").unwrap(), &RuntimeConfig::default()).unwrap();
+        remember_verification(&provider.verified, identity.clone()).unwrap();
+        remember_verification(&provider.turn_verified, identity).unwrap();
+        let next = provider.fork_turn();
+        assert!(Arc::ptr_eq(&provider.verified, &next.verified));
+        assert!(!Arc::ptr_eq(&provider.turn_verified, &next.turn_verified));
+        assert!(!Arc::ptr_eq(&provider.waiting, &next.waiting));
+        assert_eq!(next.verified.lock().unwrap().len(), 1);
+        assert!(next.turn_verified.lock().unwrap().is_empty());
+        assert!(next.waiting.lock().unwrap().exchanges.is_empty());
+    }
+
+    #[test]
+    fn cached_runtime_proof_does_not_bypass_new_turn_account_check() {
+        let home = std::env::temp_dir().join(format!("craft-codex-proof-{}-{}", std::process::id(), NEXT_PROCESS.fetch_add(1, Ordering::Relaxed)));
+        let template = CodexProvider::new(CodexOptions { binary: std::env::current_exe().unwrap(), home: home.clone() });
+        let model = ModelId::new("synthetic-model").unwrap();
+        let config = RuntimeConfig { request_timeout_secs: 2, ..RuntimeConfig::default() };
+        remember_verification(&template.verified, CompatibilityIdentity::current(&template.options, &model, &config).unwrap()).unwrap();
+        let provider = template.fork_turn();
+        let connection = Connection {
+            id: craft_ai_core::ConnectionId::new("codex-test").unwrap(),
+            label: "Synthetic".into(),
+            provider: "codex".into(),
+            endpoint: None,
+            locality: craft_ai_core::Locality::Remote,
+            auth: craft_ai_core::Auth::None,
+            billing: craft_ai_core::Billing::Unknown,
+            models: Vec::new(),
+            enabled: true,
+            key_header: None,
+        };
+        let messages = [Message::text(MessageRole::User, "synthetic-private-context-must-not-leave")];
+        let mut emitted = String::new();
+        // The test executable is not an authenticated Codex RPC server.
+        assert!(
+            provider
+                .complete(
+                    &ModelRequest { connection: &connection, model: &model, messages: &messages, tools: &[], config: &config },
+                    &Cancellation::new(),
+                    &mut |delta| emitted.push_str(delta)
+                )
+                .is_err()
+        );
+        assert!(emitted.is_empty());
+        assert!(provider.turn_verified.lock().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(home);
     }
 
     #[test]

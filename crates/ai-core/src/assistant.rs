@@ -24,7 +24,7 @@ impl AssistantRole {
         Ok(Role {
             id: RoleId::new(self.id()).map_err(|e| AiError::invalid(e.to_string()))?,
             label: match self {
-                Self::Chat => "General chat",
+                Self::Chat => "Assistant model",
                 Self::Control => "App control",
             }
             .into(),

@@ -1,7 +1,8 @@
 # Portable assistant implementation ledger
 
-Last updated: 2026-10-28. Delivery state: **Verified shared fixes and installed WordCraft Codex
-and mixed Codex/Ollama editing/read-back/Undo**. The
+Last updated: 2026-10-29. Delivery state: **Unified-model shared checkpoint verified; current
+consumer build, model comparisons and delivery pending**. Earlier installed WordCraft Codex
+and mixed Codex/Ollama editing/read-back/Undo evidence below remains historical. The
 [WordCraft consumer ledger](/Users/andy/Dev/wordcraft/docs/assistant-implementation.md)
 is authoritative for installed application, account, model-routing and live document evidence.
 Initial implementation `566be16052de3cbe04fa132a88c24db0b7c7f756` was published with user approval to
@@ -15,6 +16,8 @@ installation; no public app release has occurred.
 The approved first integration is WordCraft desktop. Other Craft app integrations and browser
 inference are deferred. Shared code must not import an application engine or document model.
 
+The following table records the earlier delivery workstreams; the current checkpoint follows it.
+
 | Workstream / owner | Acceptance and modules | State | Verification / outstanding work |
 | --- | --- | --- | --- |
 | Contracts / runtime agent | `ai-core::assistant`: messages, identified calls/results, target token, role declarations, configuration | Verified | AI-core tests: 221 passed; focused Clippy passed |
@@ -25,7 +28,45 @@ inference are deferred. Shared code must not import an application engine or doc
 | WordCraft integration / primary agent | MCP bridge, native services, docking/commands/settings, document/file guards | Verified for installed Codex and mixed-provider editing | Authoritative WordCraft consumer ledger records source `1692eef9`, shared pin `d4641d3`, exact edit/read-back and one normal Undo |
 | Documentation and commits / primary agent | Current docs, porting guide, focused shared commit and consumer pin | In progress | Initial A1 source published to the approved fork; verified follow-up included in this commit; final consumer pin tracked in WordCraft |
 
-## Checkpoint and evidence
+## Current checkpoint — 2026-10-29
+
+State: **Verified shared changes; not yet deployed**. The owner requested one conversation and
+one model selection instead of separate General chat and App control choices. The shared pane
+now shows one **Assistant model** card and one `Model:` route. Existing Codex subscription,
+Ollama and compatible API/OpenRouter connection management remains available. The Codex editor
+explicitly names the **OpenAI subscription (Codex)** connection. Credentials, histories and saved
+legacy bindings are preserved; this change adds no dependency or hardcoded model selection.
+
+The canonical resolver is `resolve_choice(store, app)`, using `AssistantRole::Chat` and persisted
+`assistant.chat`. Legacy Control bindings are neither displayed nor used as a fallback. The
+older two-choice resolver/request contract remains for compatibility; unified consumers supply
+the same resolved choice to both legacy request fields, selecting the direct host-tool loop.
+
+A host may retain a Codex provider template and call `fork_turn()` for each request. Forks share
+only successful, memory-only containment/callback proofs keyed by executable metadata, model and
+limits. Waiting callbacks and per-turn verification are independent, and every fork checks the
+isolated account before application context is sent. Each worker still validates effective
+policy. Final turn-provider drop/cancellation retains the existing process cleanup requirement;
+this is not conversation resumption or persisted gate acceptance.
+
+Verification reported by the integration owner for this checkpoint:
+
+- Native suite: **56 passed / 5 ignored / 0 failed**.
+- UI suite: **465 passed / 2 ignored / 0 failed**.
+- Native and UI all-target Clippy with warnings denied: passed.
+- Core/UI WASM checking: passed. Scoped formatting and `git diff --check`: passed.
+- Focused regressions verify one visible model/connection selector, hidden legacy route labels,
+  preserved Control data, canonical Chat resolution without Control fallback, independent fork
+  callback state and fresh account checking with a cached runtime proof.
+- Live synthetic Codex transport probe: **14.748 seconds cold / 8.531 seconds warm**. These
+  observations measure that probe only; they are not the requested document-edit benchmark.
+
+Consumer model-driven edit/save/reopen/Undo acceptance, controlled Sol/Terra/Qwen comparisons,
+panel-versus-external MCP functionality/performance checks and installation/DMG delivery remain
+owned by the WordCraft ledger. Earlier installed-build evidence below does not complete those
+checks for this source. No new deployment or publication is claimed by this checkpoint.
+
+## Historical checkpoint and evidence
 
 - Base: `92d392cff132eaf53e13afff77f38b5c11b73aa0`; branch `codex/portable-assistant`.
 - Shared checkout: `/Users/andy/Dev/craft-libs`.
@@ -245,6 +286,7 @@ separately; the installed consumer remains pinned to reviewed runtime revision `
 
 | Date | Change |
 | --- | --- |
+| 2026-10-29 | One canonical model selector/resolver; safe per-turn Codex proof reuse with fresh account checks; focused native/UI, Clippy and WASM gates passed |
 | 2026-10-28 | Runtime recovery/security review fixes and final full shared gates passed |
 | 2026-10-28 | Initial implementation checkpoint and automated test evidence |
 | 2026-10-28 | Isolate Codex global home-based discovery; rerun full gates with localized assistant document label |
