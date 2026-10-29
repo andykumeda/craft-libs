@@ -29,7 +29,7 @@ impl ChatProvider for HttpProvider {
             let url = endpoint(request.connection, "chat/completions")?;
             let builder = authorize(client.post(url), request.connection, key.as_ref())?;
             let response = interrupt(builder.json(&payload(request)).send(), cancel).await?.map_err(network)?;
-            let response = status(response)?;
+            let response = status(response, request.connection, Some(request.model), request.config, cancel).await?;
             let mut parser = StreamParser::new(request.config);
             let mut redactor = StreamRedactor::new(key.as_ref().map(SecretString::expose));
             let mut response = response;
@@ -61,7 +61,7 @@ impl ChatProvider for HttpProvider {
             let client = client(config)?;
             let request = authorize(client.get(endpoint(connection, "models")?), connection, key.as_ref())?;
             let response = interrupt(request.send(), cancel).await?.map_err(network)?;
-            let mut response = status(response)?;
+            let mut response = status(response, connection, None, config, cancel).await?;
             let mut bytes = Vec::new();
             while let Some(chunk) = interrupt(response.chunk(), cancel).await?.map_err(network)? {
                 if bytes.len().saturating_add(chunk.len()) > config.max_response_bytes {
@@ -228,20 +228,66 @@ fn authorize(builder: reqwest::RequestBuilder, connection: &Connection, key: Opt
     }
 }
 
-fn status(response: reqwest::Response) -> Result<reqwest::Response, AiError> {
+async fn status(
+    mut response: reqwest::Response,
+    connection: &Connection,
+    model: Option<&ModelId>,
+    config: &RuntimeConfig,
+    cancel: &Cancellation,
+) -> Result<reqwest::Response, AiError> {
     if response.status().is_success() {
         return Ok(response);
     }
-    let kind = match response.status().as_u16() {
+    let code = response.status().as_u16();
+    let kind = match code {
         401 | 403 => ErrorKind::Auth,
         429 => ErrorKind::RateLimited,
         _ => ErrorKind::Provider,
     };
-    // Response bodies can echo credentials or private prompts; status is enough for this error.
-    Err(AiError::new(
-        kind,
-        format!("provider returned HTTP {}; check this connection's endpoint, credentials, model and limits", response.status().as_u16()),
-    ))
+    let guidance = match code {
+        400 | 422 => {
+            "The provider rejected the request. Check that the selected model supports streaming and tool calls, and that the conversation fits its context limit."
+        }
+        401 => "The provider rejected this connection's API key. Check the saved credential in Assistant settings.",
+        403 => "This account cannot access the requested resource. Check the account's model permissions and access policy.",
+        404 => "The API route or model was not found. Check the API base URL and selected model ID in Assistant settings.",
+        413 => "The request is too large for this provider. Start a new chat or reduce the document content in the request.",
+        429 => "The provider's rate or usage limit was reached. Check the account's quota and wait before trying again.",
+        500..=599 => "The provider could not complete the request. Check its service status before trying again.",
+        _ => "Check this connection's API base URL and selected model in Assistant settings.",
+    };
+    let target = model.map_or_else(|| connection.label.clone(), |model| format!("{} / {}", connection.label, model.as_str()));
+    if code == 400 && connection.provider == "ollama" {
+        let mut bytes = Vec::new();
+        while let Ok(Some(chunk)) = interrupt(response.chunk(), cancel).await? {
+            if bytes.len().saturating_add(chunk.len()) > config.max_response_bytes {
+                bytes.clear();
+                break;
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        if let Some((needed, available)) = ollama_context_overflow(&bytes) {
+            return Err(AiError::new(
+                ErrorKind::InvalidRequest,
+                format!(
+                    "{target}: context too small ({needed} tokens needed; {available} available). Increase this model's context size in Ollama. Document and tool results count even in a new chat. No automatic retry was attempted."
+                ),
+            ));
+        }
+    }
+    // Provider bodies may echo private prompts or credentials; display only our own guidance.
+    Err(AiError::new(kind, format!("{target}: HTTP {code}. {guidance} No automatic retry was attempted.")))
+}
+
+// Extract only counts from Ollama's known rejection; never forward provider-supplied text.
+fn ollama_context_overflow(bytes: &[u8]) -> Option<(u64, u64)> {
+    let value: Value = serde_json::from_slice(bytes).ok()?;
+    let message = value.get("error")?.get("message")?.as_str()?;
+    let (needed, available) = message.strip_prefix("request (")?.split_once(" tokens) exceeds the available context size (")?;
+    let available = available.strip_suffix(" tokens), try increasing it")?;
+    let needed = needed.parse::<u64>().ok()?;
+    let available = available.parse::<u64>().ok()?;
+    (needed > available && available > 0).then_some((needed, available))
 }
 
 fn network(error: reqwest::Error) -> AiError {

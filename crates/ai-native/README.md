@@ -46,6 +46,17 @@ AI-core presets cover OpenAI, OpenRouter, Ollama, LM Studio, and custom endpoint
 HTTP retries are disabled. Known credentials are redacted from response text across streaming
 fragment boundaries, returned tool arguments, model catalogs and errors. Remote HTTP and endpoint credentials/query strings are refused by
 the shared connection validation. Secrets are resolved only at request construction.
+HTTP rejection messages identify the selected connection/model and give status-specific guidance.
+Provider error bodies stay hidden because they may echo private prompts or credentials; HTTP 400
+alone does not identify the exact rejected field or establish a model compatibility problem.
+For Ollama's recognized context-overflow response, only validated numeric token counts are
+reported, with guidance to increase the model context in Ollama. Reading that error body obeys
+the existing response-size and cancellation limits; arbitrary provider text is never displayed.
+The OpenAI-compatible API cannot set Ollama context size: configure a model using
+[`PARAMETER num_ctx` in a Modelfile](https://github.com/ollama/ollama/blob/main/docs/api/openai-compatibility.mdx#setting-the-local-context-size),
+or configure Ollama's server environment. Craft does not silently change either setting.
+A synthetic sample continuation reproduced HTTP 400 at 4,432 requested tokens against a
+4,096-token Ollama context; even a new chat can exceed that window after document inspection.
 
 A model catalog is not proof of tool support. Discovery marks tools supported only when the
 provider advertises them. `verify_model` performs a synthetic `craft_connection_probe` call
