@@ -84,3 +84,23 @@ checks. Live provider and platform acceptance remain separately recorded gates.
 | --- | --- |
 | 2026-10-28 | Replace proposed API references with implemented assistant contracts and porting guidance |
 | 2026-10-13 | Initial shared-layer proposal |
+
+## 2026-10-29 assistant settings and HTTP diagnostics
+
+Settings now prioritize the two model routes, with full-width fields and explicit Apply scope.
+Connection setup and custom IDs/scope, key headers, deletion and tool verification use expandable
+sections. Existing action/persistence contracts and saved values are preserved; opening a section
+never calls a provider. Hosts embedding the shared widget need no new API.
+
+HTTP failures name the failed route and give owned status-specific guidance. For Ollama's known
+context-overflow JSON, only validated token counts are displayed. Error-body reads are bounded by
+`RuntimeConfig.max_response_bytes` and cancellable; other provider text is never echoed.
+A synthetic sample continuation reproduced 4,432 tokens against a configured 4,096-token window.
+No model selection, server configuration, provider fallback or retry behavior changed.
+
+Verification: full UI library tests **464 passed / 2 ignored**, final focused assistant tests
+**9 passed / 2 ignored**, manual synthetic screenshot export **1 passed** with visual inspection,
+HTTP tests **6 passed** (eight status cases, redaction, safe context parsing, oversized bodies and
+cancellation), UI/native all-target Clippy, fmt and core/UI WASM checks passed. These checks do not
+claim full-workspace testing, installed-app acceptance or another platform's live inference.
+This is a shared source change; each app must pin the published revision before it receives it.

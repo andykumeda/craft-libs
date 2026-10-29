@@ -612,3 +612,12 @@ color, spacing and stroke changes fail those comparisons. To retain reviewable P
 ```sh
 CRAFT_UI_VISUAL_DIR=/absolute/path/to/visuals cargo test -p craft-ui --test visual_regression
 ```
+
+### Assistant settings
+
+The shared assistant settings start with General chat and App control model choices.
+Advanced model options contain custom IDs and app/suite scope; Apply always names its scope.
+Add or edit a connection expands into Codex sign-in and API/local-server setup.
+Connection switches, custom key headers, deletion and synthetic tool verification remain available
+in their respective advanced sections. Expanding controls never sends a request or saves settings.
+A connection test checks the catalog only; model tool verification is separate and may incur charges.

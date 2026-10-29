@@ -285,3 +285,39 @@ fn export_long_title_screenshots() {
         }
     }
 }
+
+#[test]
+fn settings_focus_on_models_and_keep_connection_details_opt_in() {
+    use egui_kittest::kittest::Queryable as _;
+    struct View {
+        settings: SettingsState,
+        actions: Vec<Action>,
+    }
+    let mut state = configured();
+    state.control.app_override = true;
+    let saved = state.store.clone();
+    let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(420.0, 1000.0)).build_ui_state(
+        |ui, view: &mut View| view.actions.extend(settings(ui, Id::unique("simple-settings"), &mut view.settings, str::to_owned)),
+        View { settings: state, actions: Vec::new() },
+    );
+    assert!(harness.query_by_label("API base URL").is_none());
+    assert!(harness.query_by_label("Custom model ID").is_none());
+    harness.get_by_label("Apply for this app").click();
+    harness.run();
+    assert!(matches!(harness.state().actions.last(), Some(Action::SaveBinding {
+        role: AssistantRole::Control, app_override: true, model, ..
+    }) if model == "local-tools"));
+    assert_eq!(harness.state().settings.store, saved, "drawing/applying waits for host acknowledgement");
+    harness.get_by_label("Add or edit a connection").click();
+    harness.run();
+    harness.get_by_label("API or local server").click();
+    harness.run();
+    assert!(harness.query_by_label("API base URL").is_some());
+    assert!(harness.query_by_label("Delete connection").is_none());
+    assert!(harness.query_by_label("Model to verify").is_none());
+    harness.get_by_label("Check model tool support").click();
+    harness.run();
+    assert!(harness.query_by_label("Model to verify").is_some());
+    assert_eq!(harness.state().settings.store, saved);
+    assert_eq!(harness.state().actions.len(), 1, "expanding settings never sends a provider request");
+}
