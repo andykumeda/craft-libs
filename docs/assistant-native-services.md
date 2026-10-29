@@ -188,3 +188,13 @@ path as a model-requested tool before the first control-model response. The resu
 document data in a normal tool message. Hosts retain target/file authorization. General chat
 does not invoke the hook. This avoids accepting an empty-activity denial of document access
 from a model that never requested inspection; it does not guarantee the model can finish an edit.
+
+## Identical model selections
+
+When General chat and App control resolve to the identical connection and model, the runtime
+uses one bounded tool loop instead of delegating to the same model and then summarizing back
+through it. It exposes the host's scoped tool catalog directly. General questions do not
+automatically read document data; actual tool calls still pass the host's document/file guards.
+The shared dispatch path retains cancellation, whole-batch validation, durable outcome
+checkpoints, response/context bounds and no-replay handling. Different selections retain the
+separate control_app route and host-initialized document context. No provider fallback occurs.

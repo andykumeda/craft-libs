@@ -182,21 +182,28 @@ fn malformed_later_call_prevents_the_whole_batch() {
 
 #[test]
 fn persistence_failure_cancels_before_dispatch() {
-    let script = Script {
-        responses: Mutex::new(VecDeque::from([call("delegate", "control_app", json!({"task":"edit"})), call("edit", "edit", json!({}))])),
-        models: Mutex::new(Vec::new()),
-    };
-    let mut host = Host { tool: "edit", calls: 0, cancel_on_list: false };
-    let cancel = Cancellation::new();
-    let result = run_turn(request(), &script, &mut host, &cancel, |event| {
-        if let TurnEvent::Checkpoint { messages } = event
-            && messages.iter().any(|m| m.content.contains("Operation may not have completed"))
-        {
-            cancel.cancel();
+    for direct in [false, true] {
+        let mut replies = vec![call("edit", "edit", json!({}))];
+        if !direct {
+            replies.insert(0, call("delegate", "control_app", json!({"task":"edit"})));
         }
-    });
-    assert_eq!(result.unwrap_err().kind, craft_ai_core::ErrorKind::Cancelled);
-    assert_eq!(host.calls, 0);
+        let script = Script { responses: Mutex::new(replies.into()), models: Mutex::new(Vec::new()) };
+        let mut host = Host { tool: "edit", calls: 0, cancel_on_list: false };
+        let cancel = Cancellation::new();
+        let mut req = request();
+        if direct {
+            req.control = req.chat.clone();
+        }
+        let result = run_turn(req, &script, &mut host, &cancel, |event| {
+            if let TurnEvent::Checkpoint { messages } = event
+                && messages.iter().any(|m| m.content.contains("Operation may not have completed"))
+            {
+                cancel.cancel();
+            }
+        });
+        assert_eq!(result.unwrap_err().kind, craft_ai_core::ErrorKind::Cancelled);
+        assert_eq!(host.calls, 0);
+    }
 }
 
 #[test]
@@ -242,30 +249,33 @@ fn uncertain_host_failure_is_recorded_and_never_retried() {
             Err(AiError::new(craft_ai_core::ErrorKind::Network, "reply channel closed"))
         }
     }
-    let script = Script {
-        responses: Mutex::new(VecDeque::from([
-            call("delegate", "control_app", json!({"task":"edit"})),
-            call("edit", "edit", json!({})),
-            call("different-id", "edit", json!({})),
-        ])),
-        models: Mutex::new(Vec::new()),
-    };
-    let mut host = Uncertain(0);
-    let mut latest = Vec::new();
-    assert_eq!(
-        run_turn(request(), &script, &mut host, &Cancellation::new(), |event| {
-            if let TurnEvent::Checkpoint { messages } = event {
-                latest = messages;
-            }
-        })
-        .unwrap_err()
-        .kind,
-        craft_ai_core::ErrorKind::Network
-    );
-    let result: Value = serde_json::from_str(&latest.last().unwrap().content).unwrap();
-    assert_eq!(result["activity"][0]["outcome"], "unknown");
-    assert_eq!(host.0, 1);
-    assert_eq!(script.models.lock().unwrap().len(), 2);
+    for direct in [false, true] {
+        let mut replies = vec![call("edit", "edit", json!({})), call("different-id", "edit", json!({}))];
+        if !direct {
+            replies.insert(0, call("delegate", "control_app", json!({"task":"edit"})));
+        }
+        let script = Script { responses: Mutex::new(replies.into()), models: Mutex::new(Vec::new()) };
+        let mut host = Uncertain(0);
+        let mut latest = Vec::new();
+        let mut req = request();
+        if direct {
+            req.control = req.chat.clone();
+        }
+        assert_eq!(
+            run_turn(req, &script, &mut host, &Cancellation::new(), |event| {
+                if let TurnEvent::Checkpoint { messages } = event {
+                    latest = messages;
+                }
+            })
+            .unwrap_err()
+            .kind,
+            craft_ai_core::ErrorKind::Network
+        );
+        let result: Value = serde_json::from_str(&latest.last().unwrap().content).unwrap();
+        assert_eq!(result["activity"][0]["outcome"], "unknown");
+        assert_eq!(host.0, 1);
+        assert_eq!(script.models.lock().unwrap().len(), if direct { 1 } else { 2 });
+    }
 }
 
 #[test]
@@ -429,6 +439,16 @@ fn app_control_has_document_context_before_its_first_answer() {
 #[test]
 #[ignore = "requires explicit CRAFT_AI_CONFIG_DIR with a signed-in Codex chat binding"]
 fn live_codex_host_context_starts_and_continues() {
+    live_codex_context_probe(false);
+}
+
+#[test]
+#[ignore = "requires explicit CRAFT_AI_CONFIG_DIR with a signed-in Codex chat binding"]
+fn live_codex_identical_choices_use_direct_tools() {
+    live_codex_context_probe(true);
+}
+
+fn live_codex_context_probe(direct: bool) {
     use craft_ai_native::codex::{CodexOptions, CodexProvider};
     use craft_ai_native::storage::SharedStore;
     let root = std::path::PathBuf::from(std::env::var_os("CRAFT_AI_CONFIG_DIR").expect("set explicit live configuration"));
@@ -439,10 +459,18 @@ fn live_codex_host_context_starts_and_continues() {
     let mut req = request();
     req.chat = chat.clone();
     req.control = chat;
+    // Distinct bindings exercise the delegated callback path even with the same Codex model.
+    if !direct {
+        req.control.connection.id = ConnectionId::new("live-control-fixture").unwrap();
+    }
     req.config = store.config().unwrap();
     req.messages = vec![Message::text(
         MessageRole::User,
-        "Use control_app to inspect the bound synthetic document and report whether its ok flag is true. Do not modify anything.",
+        if direct {
+            "Inspect the bound synthetic document with the provided tool and report whether its ok flag is true. Do not modify anything."
+        } else {
+            "Use control_app to inspect the bound synthetic document and report whether its ok flag is true. Do not modify anything."
+        },
     )];
     let provider = CodexProvider::new(CodexOptions::in_shared_root(&root));
     let mut host = Host { tool: "inspect_document", calls: 0, cancel_on_list: false };
@@ -454,11 +482,51 @@ fn live_codex_host_context_starts_and_continues() {
         }
     });
     eprintln!(
-        "live Codex host-context probe: elapsed_secs={:.3} completed={} reads={} control_used={control_used}",
+        "live Codex context probe: direct={direct} elapsed_secs={:.3} completed={} reads={} control_used={control_used}",
         start.elapsed().as_secs_f64(),
         result.is_ok(),
         host.calls
     );
     assert!(result.is_ok(), "{}", result.unwrap_err());
-    assert!(host.calls >= 1 && control_used);
+    assert!(host.calls >= 1 && (control_used || direct));
+}
+
+#[test]
+fn identical_choices_use_one_model_tool_loop() {
+    let script = Script {
+        responses: Mutex::new(VecDeque::from([call("edit", "edit", json!({})), Message::text(MessageRole::Assistant, "Done.")])),
+        models: Mutex::new(Vec::new()),
+    };
+    let mut host = Host { tool: "edit", calls: 0, cancel_on_list: false };
+    let mut req = request();
+    req.control = req.chat.clone();
+    let result = run_turn(req, &script, &mut host, &Cancellation::new(), |_| {}).unwrap();
+    assert_eq!(host.calls, 1);
+    assert_eq!(*script.models.lock().unwrap(), ["chat-model", "chat-model"]);
+    assert!(result.iter().any(|message| message.tool_call_id.as_deref() == Some("edit")));
+    assert!(!result.iter().flat_map(|message| &message.tool_calls).any(|call| call.name == "control_app"));
+}
+
+#[test]
+fn identical_choices_general_chat_does_not_read_document() {
+    let script = Script { responses: Mutex::new(VecDeque::from([Message::text(MessageRole::Assistant, "Four.")])), models: Mutex::new(Vec::new()) };
+    let mut host = Host { tool: "inspect_document", calls: 0, cancel_on_list: false };
+    let mut req = request();
+    req.control = req.chat.clone();
+    req.messages = vec![Message::text(MessageRole::User, "What is two plus two?")];
+    run_turn(req, &script, &mut host, &Cancellation::new(), |_| {}).unwrap();
+    assert_eq!(host.calls, 0);
+}
+
+#[test]
+fn identical_choices_do_not_replay_repeated_tool_call() {
+    let script = Script {
+        responses: Mutex::new(VecDeque::from([call("same", "edit", json!({})), call("same", "edit", json!({}))])),
+        models: Mutex::new(Vec::new()),
+    };
+    let mut host = Host { tool: "edit", calls: 0, cancel_on_list: false };
+    let mut req = request();
+    req.control = req.chat.clone();
+    assert!(run_turn(req, &script, &mut host, &Cancellation::new(), |_| {}).is_err());
+    assert_eq!(host.calls, 1);
 }

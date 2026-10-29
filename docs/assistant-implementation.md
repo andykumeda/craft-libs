@@ -288,3 +288,24 @@ acceptance, not full document-edit/save/Undo acceptance. Log:
 all-target native Clippy, workspace format and diff checks passed. Final logs:
 `/private/tmp/craft-host-context-start-final-{tests,clippy}.log`. Owner directed Codex-first
 consumer acceptance before proceeding to Qwen; no Qwen routing changes are included.
+
+### Single-model tool loop after measured external baseline
+
+The consumer's five-task Codex baseline passed correctness on both paths but measured native
+median21.825s vs externalMCP12.793s. Rawinspect transport medians16.623ms vsdirect16.565ms
+were effectivelyequal; extra native model orchestration, rather than MCP transport, was a
+concrete avoidable difference. No claim of full performance or capability parity follows.
+
+Identical connection+model selections now use one scoped model/tool loop. Different choices
+retain the two-role route; no selected provider/credential is replaced. Catalog validation and
+tool dispatch are shared so persistence failure, uncertain outcome and no-replay safeguards
+remain the same. The direct route obtains tool metadata but does not automatically read the
+document for unrelated general chat. No new configuration option or dependency was added.
+
+The single-loop regression first failed on the old route and now passes. Native tests:
+**52 passed / 4 ignored / 0 failed**, all-target native Clippy, workspace format/diff passed.
+Read-only actual Codex direct-tool probe passed in**15.837s** with one synthetic read and no
+nested control route; this is transport acceptance, not the consumer edit benchmark. Logs:
+`/private/tmp/craft-direct-model-{red,green,tests,clippy,codex-live}.log`. Full app gates, same
+fixture Sol/Terra comparison and deployment remain pending. Owner authorized Terra as the
+WordCraft default only if its task results match and latency is no worse than Sol.
