@@ -28,6 +28,9 @@ struct Host {
     cancel_on_list: bool,
 }
 impl ToolHost for Host {
+    fn initial_read(&self) -> Option<(String, Value)> {
+        (self.tool == "inspect_document").then(|| (self.tool.into(), json!({})))
+    }
     fn tools(&mut self, _: &Target, cancel: &Cancellation) -> Result<Vec<ToolDefinition>, AiError> {
         if self.cancel_on_list {
             cancel.cancel();
@@ -380,4 +383,35 @@ fn control_context_retains_prior_uncertain_tool_outcomes() {
     let mut host = Host { tool: "edit", calls: 0, cancel_on_list: false };
     run_turn(req, &script, &mut host, &Cancellation::new(), |_| {}).unwrap();
     assert_eq!(host.calls, 0);
+}
+
+#[test]
+fn app_control_has_document_context_before_its_first_answer() {
+    struct ContextProvider;
+    impl ChatProvider for ContextProvider {
+        fn complete(&self, request: &ModelRequest<'_>, _: &Cancellation, _: &mut dyn FnMut(&str)) -> Result<Message, AiError> {
+            if request.model.as_str() == "control-model" {
+                assert!(
+                    request.messages.iter().any(|message| message.role == MessageRole::Tool),
+                    "app control must receive the initial document read before it can answer"
+                );
+                return Ok(Message::text(MessageRole::Assistant, "Document inspected."));
+            }
+            if request.messages.iter().any(|message| message.role == MessageRole::Tool) {
+                Ok(Message::text(MessageRole::Assistant, "Done."))
+            } else {
+                Ok(call("delegate", "control_app", json!({"task":"remove the dark background"})))
+            }
+        }
+        fn models(&self, _: &Connection, _: &RuntimeConfig, _: &Cancellation) -> Result<Vec<ModelInfo>, AiError> {
+            Ok(Vec::new())
+        }
+    }
+    let mut host = Host { tool: "inspect_document", calls: 0, cancel_on_list: false };
+    let mut req = request();
+    req.messages = vec![Message::text(MessageRole::User, "remove the dark background")];
+    let result = run_turn(req, &ContextProvider, &mut host, &Cancellation::new(), |_| {}).unwrap();
+    assert_eq!(host.calls, 1);
+    let result = result.iter().find(|message| message.role == MessageRole::Tool).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&result.content).unwrap()["activity"][0]["call"]["name"], "inspect_document");
 }

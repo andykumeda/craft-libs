@@ -251,3 +251,21 @@ separately; the installed consumer remains pinned to reviewed runtime revision `
 | 2026-10-28 | Keep long saved-chat titles within a compact, accessible assistant header; add idle/running geometry and screenshot evidence |
 | 2026-10-28 | Repair native Codex result continuation, retain canonical Craft history and pass all shared gates with long-title layout fixes |
 | 2026-10-28 | Record installed WordCraft Codex and mixed Codex/Ollama editing/read-back/Undo acceptance and rerun shared delivery gates |
+
+## 2026-10-29: Initial delegated document read
+
+Status: **Verified in the native runtime; consumer live acceptance pending**. An owner report
+contained an App control result with empty activity and a denial of document access. The runtime
+previously allowed a delegated control response without any read. Hosts can now supply an
+initial read-only tool, dispatched through ordinary catalog/target checks, checkpointing,
+cancellation and activity before the first control response. WordCraft opts into inspection.
+General chat still does not read the document. This does not establish that either model will
+follow every instruction or complete every edit.
+
+`app_control_has_document_context_before_its_first_answer` failed on the original path, then
+passed after the fix. Native suite: **49 passed / 2 ignored / 0 failed**; all 17 orchestration
+tests passed. Native all-target Clippy with warnings denied, workspace format and diff checks
+passed. Logs: `/private/tmp/craft-initial-context-{red,green,tests,clippy}.log`. No dependencies,
+model bindings, credentials or global context settings changed. Consumer A/B acceptance and
+packaged delivery remain pending; privacy separation is an owner's soft preference, not an
+implemented local-only document route.

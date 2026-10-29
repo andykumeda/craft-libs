@@ -49,6 +49,10 @@ pub trait ChatProvider: Send + Sync {
 
 /// All methods run on the worker. GUI hosts use a request/reply channel to their UI thread.
 pub trait ToolHost {
+    /// Optional read-only context supplied when a user task is delegated, never for general chat.
+    fn initial_read(&self) -> Option<(String, Value)> {
+        None
+    }
     fn tools(&mut self, target: &Target, cancel: &Cancellation) -> Result<Vec<ToolDefinition>, AiError>;
     fn call(&mut self, target: &Target, call: &ToolCall, cancel: &Cancellation) -> Result<Value, AiError>;
 }
@@ -290,8 +294,17 @@ impl Run<'_> {
         }));
         messages.push(Message::text(MessageRole::User, task));
         let mut activity = Vec::new();
+        // Dispatch through the normal checkpoint/cancellation path before asking the model.
+        let mut initial_read = self.host.initial_read().map(|(name, arguments)| {
+            let mut message = Message::text(MessageRole::Assistant, "");
+            message.tool_calls.push(ToolCall { id: format!("host-read-{}", self.seen.len()), name, arguments });
+            message
+        });
         loop {
-            let answer = self.response(AssistantRole::Control, &messages, &tools)?;
+            let answer = match initial_read.take() {
+                Some(read) => read,
+                None => self.response(AssistantRole::Control, &messages, &tools)?,
+            };
             let calls = answer.tool_calls.clone();
             let summary = answer.content.clone();
             self.admit_calls(AssistantRole::Control, &calls, &tools)?;

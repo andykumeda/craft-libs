@@ -179,3 +179,12 @@ checking. Evidence: `/private/tmp/craft-codex-continuation-native-all-tests.log`
 macro in a new test; it was removed before the passing run. Combined shared-library gates and
 repaired-preview live Codex editing remain pending at this checkpoint. No credentials were read
 or copied and no live inference was run for this repair's focused verification.
+
+## Initial document context
+
+Hosts can supply a read-only `ToolHost::initial_read` for delegated application tasks. The
+runtime executes it through the same catalog validation, cancellation, checkpoint and activity
+path as a model-requested tool before the first control-model response. The result is untrusted
+document data in a normal tool message. Hosts retain target/file authorization. General chat
+does not invoke the hook. This avoids accepting an empty-activity denial of document access
+from a model that never requested inspection; it does not guarantee the model can finish an edit.
