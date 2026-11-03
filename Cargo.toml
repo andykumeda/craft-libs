@@ -29,6 +29,8 @@ kurbo = "0.13"
 thiserror = "2"
 craft-atomic = { path = "crates/atomic" }
 craft-cms = { path = "crates/cms" }
+craft-crw = { path = "crates/crw" }
+craft-dialogs = { path = "crates/dialogs" }
 craft-docpath = { path = "crates/docpath" }
 craft-font-catalog = { path = "crates/font-catalog" }
 craft-font-manager = { path = "crates/font-manager" }
@@ -60,6 +62,9 @@ unsafe_code = "forbid"
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(craft_pdf_unicode_fixtures)"] }
 
 [workspace.lints.clippy]
+cognitive_complexity = "deny"
+too_many_arguments = "deny"
+wildcard_imports = "deny"
 dbg_macro = "warn"
 todo = "warn"
 
