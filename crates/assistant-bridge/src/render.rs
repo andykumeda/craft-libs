@@ -1,4 +1,9 @@
-use crate::wire::*;
+use crate::wire::{
+    ACCESSIBILITY_SCHEMA, Accessibility, Ime, InputEvent, Limits, Mesh, PROTOCOL, PanelFrame, PanelInput, PlatformCommand, Surrounding, Texture,
+    Vertex,
+};
+#[cfg(test)]
+use crate::wire::Modifiers;
 use crate::{Client, HelperMessage, HostMessage};
 use egui::{Color32, Pos2, Rect, Vec2};
 use std::collections::{HashMap, HashSet};
@@ -303,6 +308,35 @@ impl EmbeddedPanel {
             event => self.events.push(event),
         }
     }
+    fn collect_platform_input(&mut self, ui: &egui::Ui, rect: Rect, input: &mut PanelInput) {
+        if ui.is_enabled()
+            && let Some((serial, request)) = self.reset
+        {
+            for event in ui.input(|i| i.raw.events.clone()) {
+                if let egui::Event::ImeResetCompleted { request_id } = event
+                    && request_id == request
+                {
+                    input.events.push(InputEvent::ImeResetCompleted { serial });
+                    self.reset = None;
+                }
+            }
+        }
+        for event in ui.input(|i| i.raw.events.clone()) {
+            if let egui::Event::AccessKitActionRequest(action) = event
+                && ui.is_enabled()
+                && let Some(action) = remote_action(action, &self.ids, rect.min.to_vec2(), ui.ctx().pixels_per_point())
+            {
+                if matches!(action.action, accesskit::Action::Focus | accesskit::Action::Click) {
+                    self.focused = true;
+                    input.focused = true;
+                }
+                if let Ok(action) = serde_json::to_value(action) {
+                    input.events.push(InputEvent::Accessibility { action });
+                }
+            }
+        }
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui, client: &mut Client) {
         self.poll(ui.ctx(), client);
         if let Some(error) = client.error().or(self.error.as_deref()) {
@@ -342,32 +376,7 @@ impl EmbeddedPanel {
             input.events.clear();
         }
         {
-            if ui.is_enabled()
-                && let Some((serial, request)) = self.reset
-            {
-                for event in ui.input(|i| i.raw.events.clone()) {
-                    if let egui::Event::ImeResetCompleted { request_id } = event
-                        && request_id == request
-                    {
-                        input.events.push(InputEvent::ImeResetCompleted { serial });
-                        self.reset = None;
-                    }
-                }
-            }
-            for event in ui.input(|i| i.raw.events.clone()) {
-                if let egui::Event::AccessKitActionRequest(action) = event
-                    && ui.is_enabled()
-                    && let Some(action) = remote_action(action, &self.ids, rect.min.to_vec2(), ui.ctx().pixels_per_point())
-                {
-                    if matches!(action.action, accesskit::Action::Focus | accesskit::Action::Click) {
-                        self.focused = true;
-                        input.focused = true;
-                    }
-                    if let Ok(action) = serde_json::to_value(action) {
-                        input.events.push(InputEvent::Accessibility { action });
-                    }
-                }
-            }
+            self.collect_platform_input(ui, rect, &mut input);
             self.pending_input.append(&mut input.events);
             if self.pending_input.len() > self.limits.max_events {
                 self.error = Some("assistant input queue exceeded configured limit; reopen the panel".into());
