@@ -46,3 +46,5 @@ incompatible bridge changes still require app builds. This layout adds an option
 previous always-visible update toolbar. No protocol version or settings schema changed.
 
 Older helpers that omit the optional settings-view field retain their existing update toolbar, so a new host can still update an old helper.
+
+The compact-layout local rollout uses helper 0.1.1, retaining protocol/settings/history format1 and the immutable installed 0.1.0 for rollback.

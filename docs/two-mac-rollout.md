@@ -51,3 +51,20 @@ WordCraft preview 0.15.0 was installed on both Macs with original bundles backed
 PDFCraft guarded standard and preview 0.18.0 were installed on both Macs with previous bundles backed up under `~/Applications/Craft Rollout Backups/2026-11-02/`. An initial candidate was safely refused for missing signed compatibility metadata; the corrected packaging recipe `7881a92305d468588cb5c271baa0b0689e542a72` supplied protocol 1 and fork repository metadata before signing. Final native code is from `8e86f96f564346bf893422dc0b3359d89bf64287`; its signed CLI is installed and selected on both Macs. The Mini config and MacBook approved-version record were backed up. Installed-panel and synthetic document smoke are pending.
 
 PDFCraft installed standard and preview smoke passed on both Macs with isolated profiles and synthetic PDF data. Each panel rendered the installed assistant, accepted and cleared a draft, resized and switched theme; each CLI listed 183 tools and passed eight synthetic MCP operations. Test instances quit normally and released their listeners. No inference or personal credentials were used; real IME, clipboard, VoiceOver and actual update activation remain unverified.
+
+## Compact-layout update — 2026-11-03
+
+Scope: shared assistant 0.1.1 and compatible PDFCraft/WordCraft/GridCraft hosts, standard and existing preview copies, on verified arm64 AKsMini and AKs-MBPro.local. Preserve settings/chats and existing signed trust; retain immutable helper 0.1.0 and app rollback bundles. No public release.
+
+| Device | Component / owner | Target | State | Acceptance / evidence | Remaining activation |
+| --- | --- | --- | --- | --- | --- |
+| AKsMini | Shared helper / primary | 0.1.1 | In progress | Signed bundle, installer resolution, three app handshakes, native panels | Build/package/install |
+| AKs-MBPro.local | Shared helper / primary | 0.1.1 | In progress | Same archive hash, signature, resolution, three app handshakes | Build/package/install |
+| AKsMini | PDFCraft / primary | Compact host | In progress | Signed standard+preview, synthetic panel/settings/update/file/model controls | Build/package/install |
+| AKs-MBPro.local | PDFCraft / primary | Compact host | In progress | Same signed bundles, independent native smoke | Build/package/install |
+| AKsMini | WordCraft / Word workstream | Compact host | In progress | Source gates, signed standard+preview, native panel and MCP smoke | Prepare candidates |
+| AKs-MBPro.local | WordCraft / Word workstream | Compact host | In progress | Same signed bundles, independent native smoke | Prepare candidates |
+| AKsMini | GridCraft / Grid workstream | Compact host | In progress | Source gates, signed standard+preview, native panel and MCP smoke | Prepare candidates |
+| AKs-MBPro.local | GridCraft / Grid workstream | Compact host | In progress | Standard only (no preview installed), independent native smoke | Prepare candidates |
+
+Local network discovery changed: MacBook mDNS lookup failed, but its verified Tailscale peer is online and SSH confirmed the expected hostname, arm64 and macOS27.2. No service/proxy configuration changed.
