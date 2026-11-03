@@ -98,6 +98,25 @@ impl Controller {
     pub fn error(&self) -> Option<&str> {
         self.error.as_deref()
     }
+    /// Whether the host may restart without interrupting this assistant session.
+    /// Read-only: does not poll, acknowledge input, or replay any request. Hosts must
+    /// also check their own tool-dispatch/turn state and unsaved document work.
+    /// An unacknowledged frame is conservatively pending, including a render-only one.
+    pub fn restart_safe(&self) -> bool {
+        if self.starting.is_some()
+            || self.update.is_some()
+            || self.restart_barrier.is_some()
+            || self.panel.as_ref().is_some_and(EmbeddedPanel::input_pending)
+            || self.requests.iter().any(|request| matches!(request, Request::BeginTurn { .. } | Request::Tool { .. } | Request::ChooseFiles))
+        {
+            return false;
+        }
+        if !self.ready {
+            // A missing/failed helper cannot hold host restart hostage with stale status.
+            return self.client.is_none();
+        }
+        self.status.restart_safe && !self.status.busy && !self.status.settings_busy
+    }
     pub fn owns_keyboard(&self) -> bool {
         !self.hidden && self.panel.as_ref().is_some_and(EmbeddedPanel::owns_keyboard)
     }

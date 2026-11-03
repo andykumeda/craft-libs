@@ -334,3 +334,61 @@ fn a_hidden_panel_releases_keyboard_ownership_without_discarding_its_session() {
     assert!(!controller.owns_keyboard(), "closing the panel must restore document keyboard shortcuts");
     assert!(controller.ready() && controller.client.is_some(), "hidden chats keep their helper session");
 }
+
+#[test]
+fn host_restart_guard_preserves_active_work_and_missing_helper_is_safe() {
+    let mut controller = Controller::new("wordcraft", BTreeMap::new());
+    assert!(controller.restart_safe());
+    controller.ready = true;
+    assert!(!controller.restart_safe(), "ready helper has not confirmed its drafts are saved");
+    controller.status.restart_safe = true;
+    assert!(controller.restart_safe());
+    controller.status.busy = true;
+    assert!(!controller.restart_safe());
+    controller.status.busy = false;
+    controller.status.settings_busy = true;
+    assert!(!controller.restart_safe());
+    controller.status.settings_busy = false;
+    controller.status.restart_safe = false;
+    assert!(!controller.restart_safe(), "drafts and unsaved settings prevent restart");
+    controller.status.restart_safe = true;
+    controller.restart_barrier = Some("snapshot".into());
+    assert!(!controller.restart_safe());
+    controller.restart_barrier = None;
+    let (_sender, receiver) = mpsc::channel();
+    controller.update = Some(receiver);
+    assert!(!controller.restart_safe());
+    controller.update = None;
+    let (_sender, receiver) = mpsc::channel();
+    controller.starting = Some(receiver);
+    assert!(!controller.restart_safe());
+    controller.starting = None;
+    controller.requests.push(Request::BeginTurn { prompt: "synthetic pending prompt".into(), files: vec![] });
+    assert!(!controller.restart_safe());
+    assert!(matches!(controller.requests.as_slice(), [Request::BeginTurn { .. }]), "the guard must not drain requests");
+    controller.requests.clear();
+    controller.requests.push(Request::ChooseFiles);
+    assert!(!controller.restart_safe());
+    controller.fail("synthetic failed helper".into());
+    controller.status.settings_busy = true;
+    assert!(controller.restart_safe(), "failed helper status cannot prevent ordinary app updates");
+}
+
+#[cfg(unix)]
+#[test]
+fn host_restart_guard_rejects_unacknowledged_panel_input_and_handshake() {
+    let (_temporary, mut controller) = connected(&[ready("1.0.0")], "1.0.0");
+    assert!(!controller.restart_safe(), "live transport still needs its handshake");
+    await_outcome(&mut controller);
+    controller.status.restart_safe = true;
+    assert!(controller.restart_safe());
+    let context = egui::Context::default();
+    let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, 400.0))), ..Default::default() };
+    let mut output = context.run_ui(input, |ui| {
+        controller.panel.as_mut().unwrap().show(ui, controller.client.as_mut().unwrap());
+    });
+    output.textures_delta.clear();
+    assert!(controller.panel.as_ref().unwrap().input_pending());
+    assert!(!controller.restart_safe(), "input can submit a turn before BeginTurn is received");
+    assert!(controller.ready(), "the guard must not replace or stop the helper");
+}
