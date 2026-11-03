@@ -6,11 +6,11 @@ Updated 2026-11-02. Scope: PDFCraft, WordCraft, GridCraft and the shared assista
 | --- | --- | --- | --- |
 | AKsMini | Shared assistant | Verified | Locally signed 0.1.0 installed outside app bundles; signature and active pointer verified. Private-pipe handshakes passed for all three app IDs. Awaiting updated app panels. |
 | AKsMini | PDFCraft | In progress | Standard 0.18.0 and assistant preview 0.15.0 installed; upstream 0.18 integration, tests and candidate packaging ongoing. |
-| AKsMini | WordCraft | In progress | Standard 0.15.0 and assistant preview 0.12.0 installed; upstream 0.15 integration, tests and candidate packaging ongoing. |
+| AKsMini | WordCraft | In progress | Guarded standard 0.15.0 installed with backup; preview candidate and installed-panel smoke pending. |
 | AKsMini | GridCraft | Deployed | Guarded 0.16.0 standard and preview installed with backups; isolated installed-panel, helper connection and synthetic MCP read smoke passed. |
 | AKs-MBPro.local | Shared assistant | Verified | Same signed 0.1.0 package installed; signature and active pointer verified. Private-pipe handshakes passed for all three app IDs. Awaiting updated app panels. |
 | AKs-MBPro.local | PDFCraft | In progress | Standard 0.14.0 and assistant preview 0.15.0 installed; preview was saved and closed by user before replacement. |
-| AKs-MBPro.local | WordCraft | In progress | Standard and assistant preview 0.11.0 installed; candidate packaging ongoing. |
+| AKs-MBPro.local | WordCraft | In progress | Guarded standard 0.15.0 installed with backup; preview candidate and installed-panel smoke pending. |
 | AKs-MBPro.local | GridCraft | Deployed | Guarded 0.16.0 standard installed with backup; isolated installed-panel, helper connection and synthetic MCP read smoke passed. No preview was present. |
 
 
@@ -43,3 +43,5 @@ Installed GridCraft native smoke passed on both Macs using isolated settings and
 Restart safeguard follow-up: shared host API `986cb16234cfdac1ee1337fb4cdf00945cad4e5a` passed 23 helper-library tests and Clippy; it does not change the wire protocol. GridCraft corrected source `40305767ad5fcff58c6e7c12c77d0f3a1fe1c646` passed 326 UI tests, Clippy and WASM and was pushed. Its signed standard app was installed on both Macs and its preview on the Mini; the immediately preceding bundles were retained under `~/Applications/Craft Rollout Backups/2026-11-02-guard/`. The previously installed matching CLI is byte-identical. The corrected installed build's panel smoke is pending. WordCraft guard source `8762d9869fe92fd61a2894b0085b4f458b5ca13b` passed 36 assistant tests (2 ignored), Clippy and WASM and is pushed; its signed candidate is rebuilding. PDFCraft guard verification is in progress.
 
 Corrected GridCraft installed smoke passed again on both Macs against source `40305767` and the installed 0.1.0 helper: panel rendering, all 22 MCP tools listed, and expected synthetic cell reads. Test-owned apps and loopback listeners exited normally. Documentation commit `803cbf07` was pushed. Live model inference, IME, clipboard, VoiceOver and actual update activation remain unverified.
+
+WordCraft standard 0.15.0 from source `8762d9869fe92fd61a2894b0085b4f458b5ca13b` and signed matching CLI were installed on both Macs; original bundles were backed up under `~/Applications/Craft Rollout Backups/2026-11-02/`. The Mini MCP command points at the new version and the MacBook wrapper resolves it; previous CLI versions and settings backups remain. Preview installation and synthetic installed-panel checks are pending. PDFCraft final signed CLI 0.18.0 was staged on both Macs and the MacBook wrapper diagnosed it successfully; its app and active CLI selection remain unchanged pending installation.
