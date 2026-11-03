@@ -44,3 +44,5 @@ can update all host panels without rebuilding the apps. Host document engines, t
 incompatible bridge changes still require app builds. This layout adds an optional
 `settings_open` status field: existing hosts ignore it, but need a one-time rebuild to hide their
 previous always-visible update toolbar. No protocol version or settings schema changed.
+
+Older helpers that omit the optional settings-view field retain their existing update toolbar, so a new host can still update an old helper.

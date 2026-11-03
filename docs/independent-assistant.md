@@ -105,3 +105,7 @@ denied; formatting and diff checks passed. The narrow layout checks include mess
 model/send non-overlap, draft retention and model actions preserving the acknowledged store.
 Screenshots use synthetic text only and remain temporary, outside the repository. Native
 installed-app interaction and signed update activation remain unperformed for this revision.
+
+Older helpers that omit the optional settings-view field retain their existing update toolbar, so a new host can still update an old helper.
+
+Compatibility follow-up: 26 helper unit tests and 4 process tests passed; strict all-target lint passed. The missing-field regression fails with the former false default.

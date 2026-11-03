@@ -46,7 +46,7 @@ pub struct Status {
     pub version: String,
     pub busy: bool,
     pub settings_busy: bool,
-    #[serde(default)]
+    #[serde(default = "legacy_settings_open")]
     pub settings_open: bool,
     #[serde(default)]
     pub restart_safe: bool,
@@ -63,4 +63,22 @@ pub type ToolResult = Result<Value, AiError>;
 pub struct RestartState {
     pub safe: bool,
     pub chat_id: Option<String>,
+}
+
+// Older helpers cannot report their settings view; retain their update toolbar for recovery.
+fn legacy_settings_open() -> bool {
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_status_keeps_updates_reachable_and_current_chat_hides_them() {
+        let mut value = serde_json::to_value(Status::default()).unwrap();
+        assert!(!serde_json::from_value::<Status>(value.clone()).unwrap().settings_open);
+        value.as_object_mut().unwrap().remove("settings_open");
+        assert!(serde_json::from_value::<Status>(value).unwrap().settings_open);
+    }
 }
