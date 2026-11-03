@@ -256,6 +256,7 @@ pub fn serve(mut input: impl Read + Send + 'static, mut output: impl Write) -> R
                 version: env!("CARGO_PKG_VERSION").into(),
                 busy: s.busy,
                 settings_busy: s.settings.busy,
+                settings_open: s.settings_open,
                 restart_safe: pending_turn.is_none()
                     && !s.busy
                     && !s.settings.busy

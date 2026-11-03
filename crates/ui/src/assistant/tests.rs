@@ -172,9 +172,10 @@ fn export_widget_screenshots() {
         settings: configured(),
         ..Default::default()
     };
-    for (name, open) in [("pane", false), ("settings", true)] {
+    for (name, open, dark) in [("pane", false, true), ("settings", true, true), ("pane-light", false, false)] {
         pane.settings_open = open;
         let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(420.0, 900.0)).build_ui(|ui| {
+            ui.ctx().set_visuals(if dark { egui::Visuals::dark() } else { egui::Visuals::light() });
             let _ = show(ui, Id::unique("assistant-capture"), &mut pane, str::to_owned);
         });
         harness.run();
@@ -244,18 +245,17 @@ fn long_history_titles_keep_the_header_and_composer_inside_the_pane() {
                 );
                 // Busy status includes a spinner, so it intentionally never settles.
                 harness.run_steps(3);
-                let new_chat = harness.get_by_label("New chat").rect();
-                let history = harness.get_by_role_and_label(egui::Role::ComboBox, "History").rect();
-                let label = harness.get_by_role_and_label(egui::Role::Label, "History").rect();
-                assert!(history.top() >= new_chat.bottom(), "history has its own row at {width}, busy {busy}");
-                assert!(label.right() < history.left(), "history label precedes the bounded field: {label:?}, {history:?}");
-                assert!(label.height() <= new_chat.height(), "history label stays on one line: {label:?}");
-                assert!(history.height() <= new_chat.height() + 1.0, "long title stays on one line: {history:?}");
-                assert!(history.bottom() - new_chat.top() <= 3.0 * new_chat.height(), "header stays compact: {new_chat:?}, {history:?}");
+                let chats = harness.get_by_label("Chats").rect();
+                let settings = harness.get_by_label("Settings").rect();
+                let model = harness.get_by_label("Choose model").rect();
                 let composer = harness.get_by_role(egui::Role::MultilineTextInput).rect();
-                let stop = harness.get_by_label("Stop").rect();
-                assert!(composer.top() > history.bottom(), "composer follows the history row");
-                for rect in [history, label, composer, stop] {
+                let send = harness.get_by_label(if busy { "Stop" } else { "Send" }).rect();
+                let user = harness.get_by_label("Read the current document, make its heading bold, and explain which changes you made.").rect();
+                assert!(chats.bottom() <= settings.bottom() + 1.0);
+                assert!(composer.top() > chats.bottom());
+                assert!(model.right() <= send.left(), "model and send overlap: {model:?} {send:?}");
+                assert!(harness.query_by_label("Delete chat").is_none());
+                for rect in [chats, settings, model, composer, send, user] {
                     assert!(
                         rect.left() >= 0.0 && rect.right() <= width + 0.5 && rect.bottom() <= height + 0.5,
                         "{width} x {height}, busy {busy}: control leaves the pane: {rect:?}"
@@ -340,7 +340,7 @@ fn one_model_choice_handles_chat_and_documents_without_showing_legacy_roles() {
             ..Default::default()
         },
     );
-    assert!(harness.query_by_label("Model: Local / local-tools").is_some());
+    assert!(harness.query_by_label("Choose model").is_some());
     assert!(harness.query_by_label("General chat: Local / local-tools").is_none());
     assert!(harness.query_by_label("App control: Legacy provider / legacy-control-model").is_none());
     harness.get_by_label("Settings").click();
@@ -352,4 +352,52 @@ fn one_model_choice_handles_chat_and_documents_without_showing_legacy_roles() {
     assert!(harness.query_by_label("Choose one model for chat and document work.").is_some());
     assert_eq!(harness.state().settings.control.model, "legacy-control-model");
     assert_eq!(harness.state().settings.store, saved, "hiding the legacy choice never mutates saved settings");
+}
+
+#[test]
+fn compact_controls_preserve_draft_and_expose_files_and_model_settings() {
+    use egui_kittest::kittest::Queryable as _;
+    let pane = State { available: true, draft: "Keep this draft".into(), settings: configured(), ..Default::default() };
+    let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(420.0, 800.0)).build_ui_state(
+        |ui, pane| {
+            let _ = show(ui, Id::unique("compact-controls"), pane, str::to_owned);
+        },
+        pane,
+    );
+    assert!(harness.query_by_label("Choose file…").is_none());
+    assert!(harness.query_by_label("Assistant settings").is_none());
+    harness.get_by_label("Add files").click();
+    harness.run();
+    assert!(harness.query_by_label("Choose file…").is_some());
+    harness.get_by_label("Add files").click();
+    harness.run();
+    harness.get_by_label("Choose model").click();
+    harness.run();
+    assert!(harness.query_by_label("Changes affect this app only.").is_some());
+    assert!(harness.query_by_label("Configure models in settings").is_some());
+    assert_eq!(harness.state().draft, "Keep this draft");
+}
+
+#[test]
+fn composer_model_choice_requests_validated_app_override_without_changing_saved_store() {
+    use egui_kittest::kittest::Queryable as _;
+    struct View {
+        pane: State,
+        actions: Vec<Action>,
+    }
+    let pane = State { available: true, draft: "Keep draft".into(), settings: configured(), ..Default::default() };
+    let saved = pane.settings.store.clone();
+    let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(420.0, 800.0)).build_ui_state(
+        |ui, view: &mut View| view.actions.extend(show(ui, Id::unique("pick-model"), &mut view.pane, str::to_owned)),
+        View { pane, actions: Vec::new() },
+    );
+    harness.get_by_label("Choose model").click();
+    harness.run();
+    harness.get_by_label("local-tools").click();
+    harness.run();
+    assert!(matches!(harness.state().actions.last(), Some(Action::SaveBinding {
+        role: AssistantRole::Chat, model, app_override: true, manual_tools: false, ..
+    }) if model == "local-tools"));
+    assert_eq!(harness.state().pane.settings.store, saved);
+    assert_eq!(harness.state().pane.draft, "Keep draft");
 }

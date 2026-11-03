@@ -369,19 +369,21 @@ impl Controller {
         }
         self.ensure_started(ui.ctx());
         self.poll(ui.ctx());
-        ui.horizontal_wrapped(|ui| {
-            ui.small(format!("Shared assistant {}", if self.status.version.is_empty() { "—" } else { &self.status.version }));
-            if self.config.is_some() && ui.add_enabled(self.update.is_none(), egui::Button::new("Check for updates")).clicked() {
-                self.check_update(ui.ctx());
+        if self.status.settings_open || self.client.is_none() {
+            ui.horizontal_wrapped(|ui| {
+                ui.small(format!("Shared assistant {}", if self.status.version.is_empty() { "—" } else { &self.status.version }));
+                if self.config.is_some() && ui.add_enabled(self.update.is_none(), egui::Button::new("Check for updates")).clicked() {
+                    self.check_update(ui.ctx());
+                }
+            });
+            if let Some(notice) = &self.update_notice {
+                ui.small(notice);
             }
-        });
-        if let Some(notice) = &self.update_notice {
-            ui.small(notice);
-        }
-        if let Some(candidate) = &self.candidate {
-            let title = format!("Install assistant {} for all apps", candidate.version);
-            if ui.add_enabled(self.update.is_none() && !self.status.busy && !self.status.settings_busy, egui::Button::new(title)).clicked() {
-                self.install_update(ui.ctx());
+            if let Some(candidate) = &self.candidate {
+                let title = format!("Install assistant {} for all apps", candidate.version);
+                if ui.add_enabled(self.update.is_none() && !self.status.busy && !self.status.settings_busy, egui::Button::new(title)).clicked() {
+                    self.install_update(ui.ctx());
+                }
             }
         }
         if let Some(error) = &self.error {

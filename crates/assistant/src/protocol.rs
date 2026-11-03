@@ -47,6 +47,8 @@ pub struct Status {
     pub busy: bool,
     pub settings_busy: bool,
     #[serde(default)]
+    pub settings_open: bool,
+    #[serde(default)]
     pub restart_safe: bool,
     #[serde(default)]
     pub authorized_files: Vec<String>,

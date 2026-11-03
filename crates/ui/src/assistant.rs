@@ -90,7 +90,6 @@ pub fn show(ui: &mut Ui, id: Id, state: &mut State, translate: impl Fn(&str) -> 
             });
             return;
         }
-        routes(ui, state, &translate);
         if !state.available {
             ui.label(translate("The assistant is available in the desktop app."));
         }
@@ -113,63 +112,58 @@ pub fn show(ui: &mut Ui, id: Id, state: &mut State, translate: impl Fn(&str) -> 
                 transcript(ui, state, &translate);
             },
         );
-        ui.separator();
-        composer(ui, id, state, &translate, &mut actions);
+        ui.add_space(8.0);
+        egui::Frame::new().fill(ui.visuals().extreme_bg_color).corner_radius(12.0).inner_margin(10.0).show(ui, |ui| {
+            composer(ui, id, state, &translate, &mut actions);
+        });
     });
     actions
 }
 
 fn header(ui: &mut Ui, state: &mut State, tr: &impl Fn(&str) -> String, actions: &mut Vec<Action>) {
-    ui.horizontal_wrapped(|ui| {
-        if ui.add_enabled(!state.busy, egui::Button::new(tr("New chat"))).clicked() {
-            actions.push(Action::NewChat);
-        }
-        if let Some(id) = &state.active_chat
-            && ui.add_enabled(!state.busy, egui::Button::new(tr("Delete chat"))).clicked()
-        {
-            actions.push(Action::DeleteChat(id.clone()));
-        }
-        if state.settings_open && state.busy && ui.button(tr("Stop")).clicked() {
-            actions.push(Action::Stop);
-        }
-        if ui.selectable_label(state.settings_open, tr("Settings")).clicked() {
-            state.settings_open = !state.settings_open;
-        }
-    });
-    ui.add_enabled_ui(!state.busy, |ui| {
-        ui.horizontal(|ui| {
-            // ComboBox::width is a minimum. Reserve the label first so a long selected title
-            // truncates within the remaining width instead of wrapping the label vertically.
-            let label = ui.label(tr("History"));
-            let title = state.history.iter().find(|chat| Some(&chat.id) == state.active_chat.as_ref()).map(|chat| chat.title.clone());
-            crate::ComboBox::from_id_salt("assistant_chats")
-                .selected_text(title.unwrap_or_else(|| tr("Saved chats")))
-                .width(ui.available_width())
-                .truncate()
-                .show_ui(ui, |ui| {
-                    if state.history.is_empty() {
-                        ui.label(tr("No saved chats"));
+    ui.horizontal(|ui| {
+        ui.add_enabled_ui(!state.busy, |ui| {
+            ui.menu_button(tr("Chats"), |ui| {
+                if ui.button(tr("New chat")).clicked() {
+                    actions.push(Action::NewChat);
+                    ui.close();
+                }
+                for chat in &state.history {
+                    let label = if chat.interrupted { format!("{} · {}", chat.title, tr("Interrupted")) } else { chat.title.clone() };
+                    if ui.selectable_label(Some(&chat.id) == state.active_chat.as_ref(), label).clicked() {
+                        actions.push(Action::OpenChat(chat.id.clone()));
+                        ui.close();
                     }
-                    for chat in &state.history {
-                        let selected = Some(&chat.id) == state.active_chat.as_ref();
-                        let label = if chat.interrupted { format!("{} · {}", chat.title, tr("Interrupted")) } else { chat.title.clone() };
-                        if ui.selectable_label(selected, label).clicked() {
-                            actions.push(Action::OpenChat(chat.id.clone()));
-                        }
+                }
+                if let Some(id) = &state.active_chat {
+                    ui.separator();
+                    if ui.button(tr("Delete chat")).clicked() {
+                        actions.push(Action::DeleteChat(id.clone()));
+                        ui.close();
                     }
-                })
-                .response
-                .labelled_by(label.id);
+                }
+            });
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let response = ui.add(egui::Button::new(" ").min_size(egui::vec2(32.0, 32.0)).selected(state.settings_open));
+            response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, state.settings_open, tr("Settings")));
+            // Original geometric gear: no font glyph or external image is required.
+            let center = response.rect.center();
+            let stroke = ui.style().interact(&response).fg_stroke;
+            ui.painter().circle_stroke(center, 6.0, stroke);
+            ui.painter().circle_stroke(center, 2.5, stroke);
+            for tooth in 0..8 {
+                let direction = egui::Vec2::angled(tooth as f32 * std::f32::consts::TAU / 8.0);
+                ui.painter().line_segment([center + direction * 6.0, center + direction * 9.0], stroke);
+            }
+            if response.on_hover_text(tr("Settings")).clicked() {
+                state.settings_open = !state.settings_open;
+            }
+            if state.settings_open && state.busy && ui.button(tr("Stop")).clicked() {
+                actions.push(Action::Stop);
+            }
         });
     });
-}
-
-fn routes(ui: &mut Ui, state: &State, tr: &impl Fn(&str) -> String) {
-    let value = if state.chat_route.is_empty() { tr("Not configured") } else { state.chat_route.clone() };
-    ui.small(format!("{}: {value}", tr("Model")));
-    if !state.target_label.is_empty() {
-        ui.small(craft_i18n::fmt(&tr("Document: {name}"), &[("name", &state.target_label)]));
-    }
 }
 
 fn transcript(ui: &mut Ui, state: &State, tr: &impl Fn(&str) -> String) {
@@ -191,9 +185,18 @@ fn transcript(ui: &mut Ui, state: &State, tr: &impl Fn(&str) -> String) {
                 egui::CollapsingHeader::new(tr(speaker)).show(ui, |ui| {
                     ui.label(&message.content);
                 });
+            } else if message.role == MessageRole::User {
+                let width = (ui.available_width() * 0.85 - 16.0).max(1.0);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                    egui::Frame::new().fill(ui.visuals().faint_bg_color).corner_radius(12.0).inner_margin(8.0).show(ui, |ui| {
+                        ui.set_width(width);
+                        ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                            ui.add(egui::Label::new(&message.content).wrap());
+                        });
+                    });
+                });
             } else {
-                ui.label(RichText::new(tr(speaker)).strong());
-                ui.label(&message.content);
+                ui.add(egui::Label::new(&message.content).wrap());
                 for call in &message.tool_calls {
                     ui.small(format!("{}: {}", tr("Tool"), call.name));
                 }
@@ -213,7 +216,14 @@ fn transcript(ui: &mut Ui, state: &State, tr: &impl Fn(&str) -> String) {
 }
 
 fn composer(ui: &mut Ui, id: Id, state: &mut State, tr: &impl Fn(&str) -> String, actions: &mut Vec<Action>) {
-    files(ui, state, tr, actions);
+    for path in &state.authorized_files {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(path);
+            if ui.add_enabled(!state.busy, egui::Button::new("×")).on_hover_text(tr("Remove")).clicked() {
+                actions.push(Action::RemoveFile(path.clone()));
+            }
+        });
+    }
     let input = id.with("composer");
     let enter = state.available
         && !state.busy
@@ -224,42 +234,94 @@ fn composer(ui: &mut Ui, id: Id, state: &mut State, tr: &impl Fn(&str) -> String
             .id(input)
             .desired_width(f32::INFINITY)
             .desired_rows(3)
+            .frame(egui::Frame::NONE)
             .hint_text(tr("Message · Shift+Enter for a new line")),
     );
     ui.horizontal(|ui| {
-        let send = ui.add_enabled(state.available && !state.busy && !state.draft.trim().is_empty(), egui::Button::new(tr("Send"))).clicked();
-        if (send || enter)
-            && let Some(action) = state.submit()
-        {
-            actions.push(action);
-        }
-        if ui.add_enabled(state.busy, egui::Button::new(tr("Stop"))).clicked() {
-            actions.push(Action::Stop);
-        }
+        ui.add_enabled_ui(state.available && !state.busy, |ui| {
+            let response = ui.menu_button("+", |ui| files(ui, state, tr, actions)).response;
+            response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), tr("Add files")));
+            response.on_hover_text(tr("Add files"));
+        });
+        ui.add_enabled_ui(!state.busy && !state.settings.busy, |ui| {
+            ui.set_max_width((ui.available_width() - 50.0).clamp(40.0, 160.0));
+            let value = if state.chat_route.is_empty() { tr("Choose model") } else { state.chat_route.clone() };
+            let label = egui::RichText::new(value);
+            let response = crate::ComboBox::from_id_salt("composer_model")
+                .selected_text(label)
+                .width(ui.available_width())
+                .truncate()
+                .show_ui(ui, |ui| {
+                    ui.set_max_width(260.0);
+                    ui.small(tr(if state.settings.app_id.is_some() {
+                        "Changes affect this app only."
+                    } else {
+                        "Changes set the default for all Craft apps."
+                    }));
+                    for connection in state.settings.store.connections.iter().filter(|connection| connection.enabled) {
+                        ui.strong(&connection.label);
+                        for model in &connection.models {
+                            let verified = model.capabilities.iter().any(|spec| spec.features.tools && spec.features.streaming);
+                            let selected = state.settings.chat.connection == connection.id.as_str() && state.settings.chat.model == model.id.as_str();
+                            let response = ui.add_enabled(verified, egui::Button::selectable(selected, &model.label));
+                            if response.on_hover_text(tr(if verified { "Choose model" } else { "Tools unverified" })).clicked() {
+                                actions.push(Action::SaveBinding {
+                                    role: AssistantRole::Chat,
+                                    connection: connection.id.as_str().into(),
+                                    model: model.id.as_str().into(),
+                                    app_override: state.settings.app_id.is_some(),
+                                    manual_tools: false,
+                                });
+                                ui.close();
+                            }
+                        }
+                    }
+                    ui.separator();
+                    if ui.button(tr("Configure models in settings")).clicked() {
+                        state.settings_open = true;
+                        ui.close();
+                    }
+                })
+                .response;
+            response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), tr("Choose model")));
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if state.busy {
+                if ui.button(tr("Stop")).clicked() {
+                    actions.push(Action::Stop);
+                }
+            } else {
+                let response =
+                    ui.add_enabled(state.available && !state.draft.trim().is_empty(), egui::Button::new(" ").min_size(egui::vec2(28.0, 28.0)));
+                response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), tr("Send")));
+                // Paint the arrow so a minimal host font stack cannot turn Send into a missing glyph.
+                let center = response.rect.center();
+                let stroke = ui.style().interact(&response).fg_stroke;
+                ui.painter().line_segment([center + egui::vec2(0.0, 6.0), center - egui::vec2(0.0, 6.0)], stroke);
+                ui.painter().line_segment([center + egui::vec2(-5.0, -1.0), center - egui::vec2(0.0, 6.0)], stroke);
+                ui.painter().line_segment([center + egui::vec2(5.0, -1.0), center - egui::vec2(0.0, 6.0)], stroke);
+                let send = response.on_hover_text(tr("Send")).clicked();
+                if (send || enter)
+                    && let Some(action) = state.submit()
+                {
+                    actions.push(action);
+                }
+            }
+        });
     });
 }
 
 fn files(ui: &mut Ui, state: &mut State, tr: &impl Fn(&str) -> String, actions: &mut Vec<Action>) {
-    egui::CollapsingHeader::new(tr("Files for this request")).id_salt("assistant_files").show(ui, |ui| {
-        ui.small(tr("Only files you name or choose are available to the assistant."));
-        for path in &state.authorized_files {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(path);
-                if ui.add_enabled(!state.busy, egui::Button::new(tr("Remove"))).clicked() {
-                    actions.push(Action::RemoveFile(path.clone()));
-                }
-            });
-        }
-        ui.add_enabled_ui(state.available && !state.busy, |ui| {
-            if ui.button(tr("Choose file…")).clicked() {
-                actions.push(Action::ChooseFiles);
-            }
-            ui.add(egui::TextEdit::singleline(&mut state.file_path).hint_text(tr("Full file path, including a new output file")));
-            if ui.add_enabled(!state.file_path.trim().is_empty(), egui::Button::new(tr("Add path"))).clicked() {
-                actions.push(Action::AddFile(std::mem::take(&mut state.file_path)));
-            }
-        });
-    });
+    ui.set_max_width(260.0);
+    if ui.button(tr("Choose file…")).clicked() {
+        actions.push(Action::ChooseFiles);
+        ui.close();
+    }
+    ui.add(egui::TextEdit::singleline(&mut state.file_path).hint_text(tr("Full file path, including a new output file")));
+    if ui.add_enabled(!state.file_path.trim().is_empty(), egui::Button::new(tr("Add path"))).clicked() {
+        actions.push(Action::AddFile(std::mem::take(&mut state.file_path)));
+        ui.close();
+    }
 }
 
 #[cfg(test)]

@@ -19,7 +19,7 @@ Debug app builds alone allow the explicit absolute `CRAFT_ASSISTANT_EXECUTABLE` 
 
 ## Lifecycle and updates
 
-The Controller offers a shared update check and requires an explicit install action for the selected candidate. Download/staging/signature verification runs off the app UI thread. Installation never replaces app bundles or the executable of an existing session. Versions remain immutable; running turns finish on their original version.
+The gear button opens assistant settings; shared version, update checks and explicit installation controls appear only while settings is open. If the helper is missing, recovery controls remain available without it. The Controller requires an explicit install action for the selected candidate. Download/staging/signature verification runs off the app UI thread. Installation never replaces app bundles or the executable of an existing session. Versions remain immutable; running turns finish on their original version.
 
 When an idle panel next opens, the controller resolves the shared active version. It freezes new input, drains outstanding frames/input, then asks the existing helper for a fresh restart barrier. Only a safe reply permits replacement, with the active chat restored. Drafts, unsent file paths, unsaved settings, pending Send handoffs and active turns defer replacement. No interrupted tool operation is replayed.
 
@@ -30,3 +30,17 @@ Existing automation commands remain available. Shared-mode adapters additionally
 ## Acceptance
 
 See the [implementation ledger](../../docs/independent-assistant.md). Synthetic private-pipe, model-sharing, input, accessibility-tree, cancellation, installer and update-policy tests do not establish native VoiceOver behavior, live provider authentication, or installed signed-update acceptance. No public release or production installation is performed by building this crate.
+
+## Chat layout
+
+The header contains a Chats menu (new, saved and delete actions) and a settings gear.
+The composer has a `+` menu for file selection or an explicit output path, a compact model
+picker and Send/Stop. Attached paths remain visible and removable. Model choices use existing
+streaming/tool capability validation and persist only after the host acknowledges the save;
+quick choices apply to the current app, while settings retains suite defaults and custom IDs.
+
+The assistant executable owns this UI and native provider services. Compatible helper releases
+can update all host panels without rebuilding the apps. Host document engines, tool changes and
+incompatible bridge changes still require app builds. This layout adds an optional
+`settings_open` status field: existing hosts ignore it, but need a one-time rebuild to hide their
+previous always-visible update toolbar. No protocol version or settings schema changed.

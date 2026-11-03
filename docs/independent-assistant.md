@@ -87,3 +87,21 @@ the panel before restarting. The guard does not acknowledge input, stop a chat o
 Verification: both new controller regressions passed, all 23 helper-library tests passed,
 and scoped all-target Clippy, formatting and diff checks passed. This additive API changes no
 wire types and no installed application.
+
+## Compact chat layout — 2026-11-03
+
+| Workstream / owner | Acceptance | Modules | State | Evidence / release |
+| --- | --- | --- | --- | --- |
+| Chat layout / primary | Gear settings, Chats menu, composer +/model controls, preserved drafts and capability validation | ui/assistant | Verified | 486 UI/unit/integration/doc checks passed including two executed visual captures; dark/light and 280-point preview inspected |
+| Update placement / primary | Version/check/install hidden in chat, shown in settings; missing-helper recovery retained | assistant controller/protocol/server | Verified | 25 unit + 4 process checks passed; update visibility regression failed with old behavior and passed after restoration; host rebuild required |
+
+The shared helper can change compatible UI/provider behavior without host rebuilds. The apps'
+engines and host-owned controls remain compiled into their executables. This change requires one
+host rebuild for update-toolbar placement; old hosts remain compatible but keep the old toolbar.
+Installed apps/helper have not been replaced and no signed release has been published for this change.
+
+Scoped all-target Clippy for `craft-ui` and `craft-assistant` with runtime passed with warnings
+denied; formatting and diff checks passed. The narrow layout checks include message wrapping,
+model/send non-overlap, draft retention and model actions preserving the acknowledged store.
+Screenshots use synthetic text only and remain temporary, outside the repository. Native
+installed-app interaction and signed update activation remain unperformed for this revision.

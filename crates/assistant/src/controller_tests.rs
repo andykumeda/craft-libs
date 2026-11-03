@@ -392,3 +392,21 @@ fn host_restart_guard_rejects_unacknowledged_panel_input_and_handshake() {
     assert!(!controller.restart_safe(), "input can submit a turn before BeginTurn is received");
     assert!(controller.ready(), "the guard must not replace or stop the helper");
 }
+
+#[cfg(unix)]
+#[test]
+fn installed_component_updates_appear_only_in_settings() {
+    let (temporary, mut controller) = connected(&[ready("0.1.0")], "0.1.0");
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    await_outcome(&mut controller);
+    assert!(controller.ready());
+    controller.config = Some(configured(temporary.path().join("installed")));
+    for open in [false, true, false] {
+        controller.status.settings_open = open;
+        let mut output = context.run_ui(egui::RawInput::default(), |ui| controller.show(ui));
+        let accessibility = output.platform_output.accesskit_update.as_ref().unwrap();
+        assert_eq!(accessibility.nodes.iter().any(|(_, node)| node.label() == Some("Check for updates")), open);
+        output.textures_delta.clear();
+    }
+}
