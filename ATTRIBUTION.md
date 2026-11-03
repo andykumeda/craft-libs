@@ -71,3 +71,21 @@ and the exact transfer revision are recorded in each vendored crate's SOURCE.jso
 | `hayro-interpret 0.7.0 / assets/CGATS001Compat-v2-micro.icc` | Clinton Ingram (saucecontrol/Compact-ICC-Profiles) | https://github.com/storytold/pdfcraft/blob/7437bde378f43856eada40af25b983812e615e8a/vendor/hayro-interpret/assets/CGATS001Compat-v2-micro.icc | CC0-1.0 | `73e1ba37d2bad5bab2a964f40a9eed96209666efc067c3322626214bbef234a0` | Default CMYK colour conversion (pinned hayro-interpret) |
 | `hayro-cmap 0.1.0 / assets/cmaps.brotli` | Adobe | https://github.com/storytold/pdfcraft/blob/a2ec27b4775f53c40cad3456936d9406611e3a8d/vendor/hayro-cmap/assets/cmaps.brotli | BSD-3-Clause | `ddf37af521d904d5646c2fc37b2b7e912dc1b56f0d210190b61f598154758e46` | Character-code mapping tables required to read CJK PDFs. Non-visual dependency data; existing embedding unchanged |
 | `hayro-interpret 0.7.0 / src/font/generated/metrics.rs` | Adobe (Core 14 AFM metrics, PDF specification encodings); tables by The Hayro Authors | https://github.com/storytold/pdfcraft/blob/7437bde378f43856eada40af25b983812e615e8a/vendor/hayro-interpret/src/font/generated/metrics.rs | MIT OR Apache-2.0 | `2ec9e608573eda459de1e1d9bda3bb494315e36bee885acc88912a11fe0caa41` | Glyph widths and encodings for non-embedded standard fonts. Non-visual dependency data; existing embedding unchanged |
+
+## Assistant dependency fonts
+
+The assistant runtime enables egui's default fonts. These dependency files are unmodified;
+no font binary is copied into this repository. All source paths below are pinned to
+[egui 6d518fc799681571963842f95b55a6b68431b15a](https://github.com/storytold/egui/tree/6d518fc799681571963842f95b55a6b68431b15a/crates/epaint_default_fonts/fonts).
+
+| Dependency file | Author | License / notice | Use |
+| --- | --- | --- | --- |
+| `epaint_default_fonts/fonts/Hack-Regular.ttf` | Source Foundry Authors, DejaVu and Bitstream Vera foundations | MIT and Bitstream-Vera; full upstream text in NOTICE | Monospace UI |
+| `epaint_default_fonts/fonts/Ubuntu-Light.ttf` | Canonical Ltd. and Ubuntu Font Family authors | Ubuntu-Font-1.0; full upstream text in NOTICE | Proportional UI |
+| `epaint_default_fonts/fonts/egui-icons.ttf` | John Slegers | MIT; full upstream text in NOTICE | Five-glyph emoji subset |
+| `epaint_default_fonts/fonts/emoji-icon-font.ttf` | John Slegers | MIT; full upstream text in NOTICE | Monochrome emoji fallback |
+| `epaint_default_fonts/fonts/NotoEmoji-Regular.ttf` | The Noto Project Authors | OFL-1.1; full upstream text in NOTICE | Optional monochrome emoji |
+
+Additional optional assistant UI faces are embedded only from the shared `CRAFT_FONTS_DIR`
+build input using craft-fonts-build; their provenance and licenses belong to the pinned
+craft-fonts manifest. Release packages must include the notices for every selected face.

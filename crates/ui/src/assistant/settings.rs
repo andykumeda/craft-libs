@@ -48,6 +48,31 @@ impl SettingsState {
         })
     }
 
+    /// True while replacing this process could discard a connection or model edit.
+    pub fn has_unsaved_edits(&self) -> bool {
+        let expected = self
+            .connection
+            .editing
+            .as_ref()
+            .and_then(|id| self.store.connections.iter().find(|connection| &connection.id == id))
+            .map(ConnectionDraft::from_connection)
+            .unwrap_or_default();
+        let draft = &self.connection;
+        self.chat != self.saved_role(AssistantRole::Chat)
+            || self.control != self.saved_role(AssistantRole::Control)
+            || !self.probe_model.is_empty()
+            || !draft.key.is_empty()
+            || draft.editing != expected.editing
+            || draft.label != expected.label
+            || draft.provider != expected.provider
+            || draft.endpoint != expected.endpoint
+            || draft.billing != expected.billing
+            || draft.uses_key != expected.uses_key
+            || draft.key_header != expected.key_header
+            || draft.enabled != expected.enabled
+            || draft.models != expected.models
+    }
+
     /// Prepare a save using shared validation. The host clears the key after an acknowledged save.
     pub fn prepare_connection(&mut self) -> Option<Action> {
         match self.connection.prepare(&self.store.connections) {

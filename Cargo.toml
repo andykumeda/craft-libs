@@ -15,6 +15,9 @@ repository = "https://github.com/storytold/craft-libs"
 craft-platform = { path = "crates/platform" }
 craft-ai-core = { path = "crates/ai-core" }
 craft-ai-native = { path = "crates/ai-native" }
+craft-assistant-bridge = { path = "crates/assistant-bridge" }
+craft-assistant-install = { path = "crates/assistant-install" }
+craft-assistant = { path = "crates/assistant" }
 craft-pdf = { path = "crates/pdf", version = "=0.1.0" }
 craft-plate-test = { path = "crates/plate-test" }
 krilla = { version = "=0.8.2", default-features = false, features = ["raster-images"] }

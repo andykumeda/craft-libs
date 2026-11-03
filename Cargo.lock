@@ -833,6 +833,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "craft-assistant"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "craft-ai-core",
+ "craft-ai-native",
+ "craft-assistant-bridge",
+ "craft-assistant-install",
+ "craft-fonts-build",
+ "craft-ui",
+ "craft-update",
+ "egui",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "craft-assistant-bridge"
+version = "0.1.0"
+dependencies = [
+ "accesskit",
+ "egui",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "craft-assistant-install"
+version = "0.1.0"
+dependencies = [
+ "craft-atomic",
+ "craft-update",
+ "flate2",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "tempfile",
+]
+
+[[package]]
 name = "craft-atomic"
 version = "0.1.0"
 dependencies = [

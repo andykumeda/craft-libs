@@ -1,0 +1,22 @@
+[package]
+name = "craft-assistant-install"
+description = "Verified, versioned installation of the shared Craft assistant"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+craft-atomic.workspace = true
+craft-update.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+semver = { version = "1", features = ["serde"] }
+flate2 = "1"
+tar = { version = "0.4", default-features = false }
+tempfile = "3"

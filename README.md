@@ -25,6 +25,10 @@ craft-<name> = { git = "https://github.com/storytold/craft-libs", rev = "<commit
 
 ## Libraries
 
+- [`craft-assistant`](crates/assistant/README.md): independently built native assistant service and thin app host controller; global model/authentication, app-separated history and app-owned document permissions. macOS release installation requires configured signed packages; native acceptance remains pending.
+- [`craft-assistant-bridge`](crates/assistant-bridge/README.md): bounded private-pipe protocol for embedded egui assistant rendering, input, IME and accessibility.
+- [`craft-assistant-install`](crates/assistant-install/README.md): signed immutable assistant bundles, locked installation, compatible atomic activation and explicit rollback.
+
 - [`craft-platform`](crates/platform/README.md): optional native dialog lifecycle, Linux/BSD desktop appearance observation and browser download ownership; application policy stays in the apps.
 
 - [`craft-ai-core`](crates/ai-core/README.md): the data model and contract for AI in the Craft Apps (connections, models, tools, requests, jobs, consent, history, route spec). Pure, no I/O, wasm-safe. Contract in [docs/ai-shared-layer.md](docs/ai-shared-layer.md).
