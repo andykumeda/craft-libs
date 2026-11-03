@@ -240,7 +240,7 @@ fn composer(ui: &mut Ui, id: Id, state: &mut State, tr: &impl Fn(&str) -> String
 }
 
 fn files(ui: &mut Ui, state: &mut State, tr: &impl Fn(&str) -> String, actions: &mut Vec<Action>) {
-    egui::CollapsingHeader::new(tr("Allowed files")).id_salt("assistant_files").show(ui, |ui| {
+    egui::CollapsingHeader::new(tr("Files for this request")).id_salt("assistant_files").show(ui, |ui| {
         ui.small(tr("Only files you name or choose are available to the assistant."));
         for path in &state.authorized_files {
             ui.horizontal_wrapped(|ui| {
@@ -255,7 +255,7 @@ fn files(ui: &mut Ui, state: &mut State, tr: &impl Fn(&str) -> String, actions: 
                 actions.push(Action::ChooseFiles);
             }
             ui.add(egui::TextEdit::singleline(&mut state.file_path).hint_text(tr("Full file path, including a new output file")));
-            if ui.add_enabled(!state.file_path.trim().is_empty(), egui::Button::new(tr("Allow path"))).clicked() {
+            if ui.add_enabled(!state.file_path.trim().is_empty(), egui::Button::new(tr("Add path"))).clicked() {
                 actions.push(Action::AddFile(std::mem::take(&mut state.file_path)));
             }
         });

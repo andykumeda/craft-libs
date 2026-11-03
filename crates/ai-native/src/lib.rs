@@ -1,8 +1,10 @@
 //! Native assistant services. Applications own documents and authorize every MCP operation.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod catalog;
 pub mod codex;
 pub mod http;
+pub(crate) mod mcp_content;
 pub mod runtime;
 pub mod secrets;
 pub mod storage;

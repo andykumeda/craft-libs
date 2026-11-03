@@ -48,6 +48,39 @@ pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub input_schema: Value,
+    /// MCP descriptor metadata is transported losslessly; providers use their supported fields.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub mcp_metadata: std::collections::BTreeMap<String, Value>,
+}
+
+impl ToolDefinition {
+    pub fn from_mcp(value: &Value) -> Result<Self, AiError> {
+        let object = value.as_object().ok_or_else(|| AiError::invalid("MCP tool descriptor must be an object"))?;
+        let name = object.get("name").and_then(Value::as_str).ok_or_else(|| AiError::invalid("MCP tool descriptor needs a name"))?;
+        let description =
+            object.get("description").and_then(Value::as_str).ok_or_else(|| AiError::invalid("MCP tool descriptor needs a description"))?;
+        let input_schema = object
+            .get("inputSchema")
+            .filter(|schema| schema.is_object())
+            .ok_or_else(|| AiError::invalid("MCP tool descriptor needs an inputSchema"))?;
+        Ok(Self {
+            name: name.into(),
+            description: description.into(),
+            input_schema: input_schema.clone(),
+            mcp_metadata: object
+                .iter()
+                .filter(|(key, _)| !["name", "description", "inputSchema"].contains(&key.as_str()))
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+        })
+    }
+    pub fn to_mcp(&self) -> Value {
+        let mut object: serde_json::Map<String, Value> = self.mcp_metadata.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
+        object.insert("name".into(), Value::String(self.name.clone()));
+        object.insert("description".into(), Value::String(self.description.clone()));
+        object.insert("inputSchema".into(), self.input_schema.clone());
+        Value::Object(object)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -164,5 +197,21 @@ mod tests {
         assert!(RuntimeConfig::default().validate().is_ok());
         assert!(RuntimeConfig { max_rounds: u32::MAX, ..Default::default() }.validate().is_err());
         assert!(RuntimeConfig { max_context_bytes: usize::MAX, ..Default::default() }.validate().is_err());
+    }
+}
+
+#[cfg(test)]
+mod mcp_descriptor_tests {
+    use super::*;
+    #[test]
+    fn mcp_descriptor_metadata_and_legacy_wire_format_roundtrip() {
+        let value = serde_json::json!({"name":"render_page","description":"Render","title":"Page image","inputSchema":{"type":"object"},"annotations":{"readOnlyHint":true},"outputSchema":{"type":"object"},"_meta":{"suite":"craft"}});
+        let tool = ToolDefinition::from_mcp(&value).unwrap();
+        assert_eq!(tool.to_mcp(), value);
+        let wire = serde_json::to_value(&tool).unwrap();
+        assert!(wire.get("input_schema").is_some());
+        assert_eq!(serde_json::from_value::<ToolDefinition>(wire).unwrap(), tool);
+        let old = serde_json::json!({"name":"old","description":"Old","input_schema":{"type":"object"}});
+        assert!(serde_json::from_value::<ToolDefinition>(old).unwrap().mcp_metadata.is_empty());
     }
 }

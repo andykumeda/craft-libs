@@ -28,7 +28,7 @@ impl ChatProvider for HttpProvider {
             let client = client(request.config)?;
             let url = endpoint(request.connection, "chat/completions")?;
             let builder = authorize(client.post(url), request.connection, key.as_ref())?;
-            let response = interrupt(builder.json(&payload(request)).send(), cancel).await?.map_err(network)?;
+            let response = interrupt(builder.json(&payload(request)?).send(), cancel).await?.map_err(network)?;
             let response = status(response, request.connection, Some(request.model), request.config, cancel).await?;
             let mut parser = StreamParser::new(request.config);
             let mut redactor = StreamRedactor::new(key.as_ref().map(SecretString::expose));
@@ -320,33 +320,46 @@ async fn interrupt<T>(future: impl std::future::Future<Output = T>, cancel: &Can
     }
 }
 
-fn payload(request: &ModelRequest<'_>) -> Value {
-    let messages: Vec<Value> = request
-        .messages
-        .iter()
-        .map(|message| {
-            let role = match message.role {
-                MessageRole::System => "system",
-                MessageRole::User => "user",
-                MessageRole::Assistant => "assistant",
-                MessageRole::Tool => "tool",
-            };
-            let mut value = json!({"role":role,"content":message.content});
-            if !message.tool_calls.is_empty() {
-                value["tool_calls"] = Value::Array(
-                    message
-                        .tool_calls
-                        .iter()
-                        .map(|call| json!({"id":call.id,"type":"function","function":{"name":call.name,"arguments":call.arguments.to_string()}}))
-                        .collect(),
-                );
-            }
-            if let Some(id) = &message.tool_call_id {
-                value["tool_call_id"] = json!(id);
-            }
-            value
-        })
-        .collect();
+fn payload(request: &ModelRequest<'_>) -> Result<Value, AiError> {
+    let mut messages = Vec::new();
+    let mut image_blocks = Vec::new();
+    let mut decoded_bytes = 0usize;
+    for message in request.messages {
+        // A provider requires every result of an assistant's tool-call batch before another role.
+        if message.role != MessageRole::Tool && !image_blocks.is_empty() {
+            messages.push(json!({"role":"user","content":std::mem::take(&mut image_blocks)}));
+        }
+        let content = crate::mcp_content::split(message, request.config.max_response_bytes.saturating_sub(decoded_bytes))?;
+        for image in content.images {
+            decoded_bytes = decoded_bytes.checked_add(image.bytes).ok_or_else(|| AiError::invalid("MCP image byte count overflowed."))?;
+            image_blocks
+                .push(json!({"type":"text","text":format!("MCP image from tool call {}",message.tool_call_id.as_deref().unwrap_or("unknown"))}));
+            image_blocks.push(json!({"type":"image_url","image_url":{"url":image.data_uri}}));
+        }
+        let role = match message.role {
+            MessageRole::System => "system",
+            MessageRole::User => "user",
+            MessageRole::Assistant => "assistant",
+            MessageRole::Tool => "tool",
+        };
+        let mut value = json!({"role":role,"content":content.text});
+        if !message.tool_calls.is_empty() {
+            value["tool_calls"] = Value::Array(
+                message
+                    .tool_calls
+                    .iter()
+                    .map(|call| json!({"id":call.id,"type":"function","function":{"name":call.name,"arguments":call.arguments.to_string()}}))
+                    .collect(),
+            );
+        }
+        if let Some(id) = &message.tool_call_id {
+            value["tool_call_id"] = json!(id);
+        }
+        messages.push(value);
+    }
+    if !image_blocks.is_empty() {
+        messages.push(json!({"role":"user","content":image_blocks}));
+    }
     let mut body = json!({"model":request.model.as_str(),"messages":messages,"stream":true});
     if !request.tools.is_empty() {
         body["tools"] = Value::Array(
@@ -357,7 +370,7 @@ fn payload(request: &ModelRequest<'_>) -> Value {
                 .collect(),
         );
     }
-    body
+    Ok(body)
 }
 
 #[derive(Default)]
@@ -487,6 +500,62 @@ impl<'a> StreamParser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_payload(messages: &[Message]) -> Result<Value, AiError> {
+        let connection = Connection {
+            id: craft_ai_core::ConnectionId::new("test").unwrap(),
+            label: "Test".into(),
+            provider: "openai".into(),
+            endpoint: None,
+            locality: craft_ai_core::Locality::Local,
+            auth: Auth::None,
+            billing: craft_ai_core::Billing::Unknown,
+            models: Vec::new(),
+            enabled: true,
+            key_header: None,
+        };
+        let model = ModelId::new("synthetic-vision").unwrap();
+        payload(&ModelRequest { connection: &connection, model: &model, messages, tools: &[], config: &RuntimeConfig::default() })
+    }
+
+    #[test]
+    fn mcp_images_follow_the_complete_tool_batch_as_native_user_images() {
+        use base64::Engine as _;
+        let data = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\nsynthetic");
+        let mut assistant = Message::text(MessageRole::Assistant, "");
+        assistant.tool_calls = vec![
+            ToolCall { id: "shot".into(), name: "screenshot".into(), arguments: json!({}) },
+            ToolCall { id: "inspect".into(), name: "inspect".into(), arguments: json!({}) },
+        ];
+        let image = Message::tool(
+            "shot",
+            &json!({"content":[{"type":"image","mimeType":"image/png","data":data}],"isError":false,"structuredContent":{"width":1}}),
+        );
+        let text = Message::tool("inspect", &json!({"ok":true}));
+        let history = vec![assistant, image, text, Message::text(MessageRole::Assistant, "done")];
+        let original = history.clone();
+        let body = test_payload(&history).unwrap();
+        let messages = body["messages"].as_array().unwrap();
+        assert_eq!(messages.iter().map(|m| m["role"].as_str().unwrap()).collect::<Vec<_>>(), ["assistant", "tool", "tool", "user", "assistant"]);
+        assert_eq!(messages[1]["tool_call_id"], "shot");
+        assert_eq!(messages[2]["tool_call_id"], "inspect");
+        let metadata: Value = serde_json::from_str(messages[1]["content"].as_str().unwrap()).unwrap();
+        assert_eq!(metadata["structuredContent"]["width"], 1);
+        assert_eq!(metadata["isError"], false);
+        assert_eq!(messages[3]["content"][1]["type"], "image_url");
+        assert_eq!(messages[3]["content"][1]["image_url"]["url"], format!("data:image/png;base64,{data}"));
+        assert_eq!(history, original);
+    }
+
+    #[test]
+    fn text_only_payloads_preserve_content_and_emit_no_extra_user_messages() {
+        let content = r#"  { "isError": true, "value": "untouched" }  "#.to_owned();
+        let mut message = Message::text(MessageRole::Tool, content.clone());
+        message.tool_call_id = Some("one".into());
+        let body = test_payload(&[message]).unwrap();
+        assert_eq!(body["messages"].as_array().unwrap().len(), 1);
+        assert_eq!(body["messages"][0]["content"], content);
+    }
 
     #[test]
     fn fragmented_utf8_and_tool_arguments_survive() {

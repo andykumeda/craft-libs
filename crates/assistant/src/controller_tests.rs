@@ -312,3 +312,24 @@ fn user_send_handoff_defers_replacement_before_app_starts_the_turn() {
     assert!(controller.ready());
     assert!(controller.client.is_some());
 }
+
+#[cfg(unix)]
+#[test]
+fn a_hidden_panel_releases_keyboard_ownership_without_discarding_its_session() {
+    let (_temporary, mut controller) = connected(&[ready("1.0.0")], "1.0.0");
+    await_outcome(&mut controller);
+    let context = egui::Context::default();
+    let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(380.0, 640.0))), ..Default::default() };
+    let mut output = context.run_ui(raw, |ui| {
+        let id = ui.scope_id().with("craft-embedded-assistant");
+        ui.memory_mut(|memory| memory.request_focus(id));
+        if let (Some(panel), Some(client)) = (&mut controller.panel, &mut controller.client) {
+            panel.show(ui, client);
+        }
+    });
+    output.textures_delta.clear();
+    assert!(controller.owns_keyboard(), "the visible embedded panel received keyboard focus");
+    controller.hidden();
+    assert!(!controller.owns_keyboard(), "closing the panel must restore document keyboard shortcuts");
+    assert!(controller.ready() && controller.client.is_some(), "hidden chats keep their helper session");
+}

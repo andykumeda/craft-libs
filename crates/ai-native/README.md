@@ -16,7 +16,7 @@ its first integration. `craft-ui::assistant` provides optional egui widgets sepa
 3. Start a worker with a `TurnRequest`, one shared `Cancellation`, and the app's `ToolHost`.
    `run_turn` emits `TurnEvent` values and returns the canonical conversation. A GUI host uses
    request/reply channels to handle `ToolHost` calls on its UI thread; it must validate the
-   opaque `Target` and file grants before every operation. It must also check cancellation
+   opaque `Target` before dispatch and apply the same MCP roots, permissions and unsaved-work rules as external clients. It must also check cancellation
    before dispatch, so closing a reply channel does not accidentally execute a late edit.
 4. Persist each `TurnEvent::Checkpoint` synchronously in the app's `HistoryStore` before the
    callback returns; cancel the shared token immediately if saving fails. Checkpoints precede
@@ -26,17 +26,20 @@ its first integration. `craft-ui::assistant` provides optional egui widgets sepa
    without executing a pending operation.
 
 General chat receives only `control_app`, which delegates document-related requests to the
-control binding. The control binding receives the host's tools. Tool-call IDs and their
+control binding. The control binding receives the host's complete MCP tools. Tool-call IDs and their
 results remain paired across continuation requests. Successful delegation results retain a
 bounded command/result activity log. An oversized result records the completed command identity
 without its body and stops the turn. The entire provider tool-call batch is validated before any
-command is dispatched. Only bounded transcript text is shared
-with the control model; model settings and document targets cannot be changed by a tool call.
+command is dispatched. Bounded transcript text and supported MCP images reach the control model. Tool calls can select documents and windows through the same MCP operations as external clients; they cannot silently change provider/model settings.
 Relevant document content may reach both configured providers and remain in local history.
 
 A host's `Network` error means the result is uncertain and stops the turn; it is never retried.
 Ordinary refused operations are returned to the model as errors. Previously completed actions
 remain completed when a later call fails or the user presses Stop. The host owns Undo.
+
+Catalogs preserve names, schemas and descriptor metadata with `ToolDefinition::from_mcp` / `to_mcp`. When the catalog exceeds the configured provider tool budget, `craft_mcp` provides paginated discovery, exact descriptions and calls for every tool; no tools are excluded. The wire catalog supports up to 1,024 tools.
+
+MCP PNG results remain unchanged in history and are sent as image content to HTTP and Codex adapters. Recovery and completed delegation activity envelopes receive the same bounded image handling, and later delegations preserve valid historical tool pairs so images remain available without copying base64 into text. Image bytes have a separate configured response budget; base64 is excluded from text context accounting. Unsupported image MIME types or content blocks fail explicitly. A selected model/provider must support the requested images; no fallback occurs.
 
 ## Providers and capabilities
 
@@ -76,7 +79,7 @@ validated overrides:
 | Model rounds per user turn, both roles combined | 12 | 1–100 |
 | Provider response bytes | 8 MiB | 1 KiB–64 MiB |
 | Serialized context bytes | 256 KiB | 1 KiB–4 MiB |
-| Tools per response/catalog | 128 | 1–1,024 |
+| Tools per response/provider catalog | 128 | 1–1,024 |
 | Tool argument bytes | 64 KiB | 256 B–1 MiB |
 
 Bindings start unset. Saved conversations cannot supply system instructions or unmatched/misplaced

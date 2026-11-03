@@ -130,6 +130,7 @@ fn compatibility() -> AiError {
 fn verify_callback_rounds(mut complete: impl FnMut(&[Message], &[ToolDefinition]) -> Result<Message, AiError>) -> Result<(), AiError> {
     let challenge = format!("craft-probe-{}-{}", std::process::id(), NEXT_PROCESS.fetch_add(1, Ordering::Relaxed));
     let tools = [ToolDefinition {
+        mcp_metadata: Default::default(),
         name: "craft_compatibility_probe".into(),
         description: "Harmless synthetic compatibility check. No document is available or modified.".into(),
         input_schema: json!({"type":"object","properties":{"challenge":{"type":"string","const":challenge}},"required":["challenge"],"additionalProperties":false}),
@@ -427,8 +428,16 @@ impl RpcClient {
     }
 
     fn send(&mut self, message: Value) -> Result<(), AiError> {
+        self.send_with_images(message, 0)
+    }
+
+    fn send_with_images(&mut self, message: Value, image_allowance: usize) -> Result<(), AiError> {
+        let max_image_wire = self.config.max_response_bytes.div_ceil(3).saturating_mul(4).saturating_add(self.config.max_context_bytes);
+        if image_allowance > max_image_wire {
+            return Err(AiError::invalid("Codex images exceed the configured byte limit."));
+        }
         let bytes = serde_json::to_vec(&message).map_err(|_| protocol("Could not encode a Codex request."))?;
-        if bytes.len() > self.config.max_context_bytes.saturating_add(self.config.max_response_bytes) {
+        if bytes.len() > self.config.max_context_bytes.saturating_add(self.config.max_response_bytes).saturating_add(image_allowance) {
             return Err(AiError::invalid("The Codex request exceeds its configured size limit."));
         }
         self.cancel.check()?;
@@ -472,9 +481,13 @@ impl RpcClient {
     }
 
     fn call(&mut self, method: &str, params: Value, cancel: &Cancellation) -> Result<Value, AiError> {
+        self.call_with_images(method, params, cancel, 0)
+    }
+
+    fn call_with_images(&mut self, method: &str, params: Value, cancel: &Cancellation, image_allowance: usize) -> Result<Value, AiError> {
         let id = self.next_id;
         self.next_id = self.next_id.checked_add(1).ok_or_else(|| protocol("Codex request identifiers were exhausted."))?;
-        self.send(json!({"id":id,"method":method,"params":params}))?;
+        self.send_with_images(json!({"id":id,"method":method,"params":params}), image_allowance)?;
         let deadline = Instant::now() + Duration::from_secs(self.config.request_timeout_secs);
         loop {
             let message = self.receive_wire(deadline, cancel)?;
@@ -838,16 +851,26 @@ impl WaitingExchange {
             && self.exchange.identity == CompatibilityIdentity::current(options, request.model, request.config)?)
     }
 
-    fn response(&self, result: &Message) -> Result<Value, AiError> {
-        if result.content.len() > self.exchange.config.max_response_bytes {
+    fn response(&self, result: &Message) -> Result<(Value, usize), AiError> {
+        let content = crate::mcp_content::split(result, self.exchange.config.max_response_bytes)?;
+        if content.text.len() > self.exchange.config.max_response_bytes {
             return Err(protocol("Codex tool result exceeds its configured limit; no action was replayed."));
         }
         let value: Value =
-            serde_json::from_str(&result.content).map_err(|_| protocol("Codex tool result is not valid JSON; no action was replayed."))?;
-        Ok(json!({"id":self.request_id,"result":{
-            "contentItems":[{"type":"inputText","text":result.content}],
-            "success":value.get("isError").and_then(Value::as_bool) != Some(true),
-        }}))
+            serde_json::from_str(&content.text).map_err(|_| protocol("Codex tool result is not valid JSON; no action was replayed."))?;
+        let mut items = vec![json!({"type":"inputText","text":content.text})];
+        let mut allowance = 0usize;
+        for image in content.images {
+            allowance = allowance.checked_add(image.data_uri.len()).ok_or_else(|| protocol("Codex image byte count overflowed."))?;
+            items.push(json!({"type":"inputImage","imageUrl":image.data_uri}));
+        }
+        Ok((
+            json!({"id":self.request_id,"result":{
+                "contentItems":items,
+                "success":value.get("isError").and_then(Value::as_bool) != Some(true),
+            }}),
+            allowance,
+        ))
     }
 }
 
@@ -926,16 +949,17 @@ impl CodexProvider {
         request.config.validate()?;
         cancel.check()?;
         // Bound retained canonical state as well as initial context. A result is never resent on error.
-        if serde_json::to_vec(&request.messages).map_err(|_| protocol("Could not encode the conversation."))?.len() > request.config.max_context_bytes
+        let context_messages = crate::mcp_content::context_messages(request.messages, request.config)?;
+        if serde_json::to_vec(&context_messages).map_err(|_| protocol("Could not encode the conversation."))?.len() > request.config.max_context_bytes
         {
             return Err(AiError::invalid("The conversation exceeds the configured context limit. Start a new chat."));
         }
         let mut exchange = if let Some(mut pending) = self.take_waiting(request, true)? {
             let result = request.messages.last().ok_or_else(continuation_failure)?;
-            let response = pending.response(result)?;
+            let (response, image_allowance) = pending.response(result)?;
             pending.cancel.check()?;
             cancel.check()?;
-            pending.exchange.client.send(response)?;
+            pending.exchange.client.send_with_images(response, image_allowance)?;
             pending.exchange
         } else {
             if request.messages.last().is_none_or(|message| message.role != MessageRole::User) {
@@ -957,6 +981,26 @@ impl CodexProvider {
     }
 }
 
+fn turn_input(messages: &[Message], config: &RuntimeConfig) -> Result<(Vec<Value>, usize), AiError> {
+    let context_messages = crate::mcp_content::context_messages(messages, config)?;
+    let transcript: Vec<_> = context_messages.iter().filter(|message| message.role != MessageRole::System).collect();
+    let context = serde_json::to_string(&transcript).map_err(|_| protocol("Could not encode the conversation."))?;
+    if context.len() > config.max_context_bytes {
+        return Err(AiError::invalid("The conversation exceeds the configured context limit. Start a new chat."));
+    }
+    let mut input = vec![json!({"type":"text","text":context,"text_elements":[]})];
+    let mut allowance = 0usize;
+    for message in messages {
+        let content = crate::mcp_content::split(message, config.max_response_bytes)?;
+        for image in content.images {
+            allowance = allowance.checked_add(image.data_uri.len()).ok_or_else(|| protocol("Codex image byte count overflowed."))?;
+            input.push(json!({"type":"text","text":format!("MCP image from tool call {}",message.tool_call_id.as_deref().unwrap_or("unknown")),"text_elements":[]}));
+            input.push(json!({"type":"image","url":image.data_uri}));
+        }
+    }
+    Ok((input, allowance))
+}
+
 impl Exchange {
     fn start(options: &CodexOptions, request: &ModelRequest<'_>, cancel: &Cancellation) -> Result<Self, AiError> {
         let mut client = RpcClient::start(options, request.config, cancel)?;
@@ -967,11 +1011,7 @@ impl Exchange {
             .map(|message| message.content.as_str())
             .collect::<Vec<_>>()
             .join("\n\n");
-        let transcript: Vec<_> = request.messages.iter().filter(|message| message.role != MessageRole::System).collect();
-        let context = serde_json::to_string(&transcript).map_err(|_| protocol("Could not encode the conversation."))?;
-        if context.len() > request.config.max_context_bytes {
-            return Err(AiError::invalid("The conversation exceeds the configured context limit. Start a new chat."));
-        }
+        let (input, allowance) = turn_input(request.messages, request.config)?;
         let start = client.call("thread/start", json!({
             "model":request.model.as_str(),"modelProvider":"openai","allowProviderModelFallback":false,
             "ephemeral":true,"cwd":client.work.0,"permissions":PROFILE,"approvalPolicy":"never",
@@ -986,7 +1026,7 @@ impl Exchange {
             return Err(compatibility());
         }
         let thread = start.pointer("/thread/id").and_then(Value::as_str).ok_or_else(|| protocol("Codex returned no thread identifier."))?.to_owned();
-        let started = client.call("turn/start", json!({"threadId":thread,"input":[{"type":"text","text":context,"text_elements":[]}]}), cancel)?;
+        let started = client.call_with_images("turn/start", json!({"threadId":thread,"input":input}), cancel, allowance)?;
         let turn = started.pointer("/turn/id").and_then(Value::as_str).ok_or_else(|| protocol("Codex returned no turn identifier."))?.to_owned();
         Ok(Self {
             client,
@@ -1110,8 +1150,36 @@ impl ChatProvider for CodexProvider {
 mod tests {
     use super::*;
 
+    #[test]
+    fn historical_mcp_images_use_native_turn_input_without_base64_text_context() {
+        use base64::Engine as _;
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.extend(vec![b'x'; 4096]);
+        let data = base64::engine::general_purpose::STANDARD.encode(&png);
+        let messages = vec![
+            Message::tool(
+                "previous-shot",
+                &json!({"content":[{"type":"image","mimeType":"image/png","data":data}],"structuredContent":{"width":1},"isError":false}),
+            ),
+            Message::text(MessageRole::User, "Describe the prior screenshot"),
+        ];
+        let original = messages.clone();
+        let config = RuntimeConfig { max_context_bytes: 1024, ..Default::default() };
+        let (input, allowance) = turn_input(&messages, &config).unwrap();
+        assert!(!input[0]["text"].as_str().unwrap().contains(&data));
+        assert!(input[0]["text"].as_str().unwrap().contains("structuredContent"));
+        assert_eq!(input[2], json!({"type":"image","url":format!("data:image/png;base64,{data}")}));
+        assert_eq!(allowance, format!("data:image/png;base64,{data}").len());
+        assert_eq!(messages, original);
+    }
+
     fn tool() -> ToolDefinition {
-        ToolDefinition { name: "inspect".into(), description: "Read the current document".into(), input_schema: json!({"type":"object"}) }
+        ToolDefinition {
+            mcp_metadata: Default::default(),
+            name: "inspect".into(),
+            description: "Read the current document".into(),
+            input_schema: json!({"type":"object"}),
+        }
     }
 
     #[test]
@@ -1372,7 +1440,12 @@ mod tests {
                     config: RuntimeConfig { request_timeout_secs: 2, ..RuntimeConfig::default() },
                     tools: vec![
                         tool(),
-                        ToolDefinition { name: "edit".into(), description: "Synthetic edit".into(), input_schema: json!({"type":"object"}) },
+                        ToolDefinition {
+                            mcp_metadata: Default::default(),
+                            name: "edit".into(),
+                            description: "Synthetic edit".into(),
+                            input_schema: json!({"type":"object"}),
+                        },
                     ],
                 }
             }
@@ -1552,6 +1625,31 @@ mod tests {
             }
             assert!(fixture.provider.waiting.lock().unwrap().exchanges.is_empty());
             assert_stopped(pid, &work);
+        }
+
+        #[test]
+        fn mcp_screenshot_continuation_uses_native_image_and_retains_exact_canonical_history() {
+            use base64::Engine as _;
+            let mut fixture = Fixture::new();
+            fixture.config.max_context_bytes = 1024;
+            let cancel = Cancellation::new();
+            let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+            png.extend(vec![b'x'; 4096]);
+            let data = base64::engine::general_purpose::STANDARD.encode(&png);
+            let result = json!({"content":[{"type":"image","mimeType":"image/png","data":data}],"structuredContent":{"width":1},"isError":false});
+            let metadata = json!({"content":[{"type":"image","mimeType":"image/png","data":format!("[{} decoded image bytes supplied separately]",png.len())}],"structuredContent":{"width":1},"isError":false});
+            let expected = json!({"id":17,"result":{"contentItems":[{"type":"inputText","text":metadata.to_string()},{"type":"inputImage","imageUrl":format!("data:image/png;base64,{data}")}],"success":true}});
+            let script = output(call(json!(17), "shot-call", "inspect"))
+                + &format!("IFS= read -r response || exit 90\n[ \"$response\" = {} ] || exit 91\n", quote(&expected.to_string()))
+                + &output(delta("Image received."))
+                + &output(completed());
+            let mut messages = vec![Message::text(MessageRole::User, "Inspect a synthetic screenshot")];
+            fixture.park(&script, &mut messages, &cancel);
+            messages.push(Message::tool("shot-call", &result));
+            let original = messages.clone();
+            let answer = fixture.provider.complete_round(&fixture.request(&messages), &cancel, &mut |_| {}).unwrap();
+            assert_eq!(answer.content, "Image received.");
+            assert_eq!(messages, original);
         }
 
         #[test]

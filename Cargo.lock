@@ -820,6 +820,7 @@ dependencies = [
 name = "craft-ai-native"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "craft-ai-core",
  "craft-atomic",

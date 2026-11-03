@@ -35,7 +35,12 @@ impl ToolHost for Host {
         if self.cancel_on_list {
             cancel.cancel();
         }
-        Ok(vec![ToolDefinition { name: self.tool.into(), description: "host operation".into(), input_schema: json!({"type":"object"}) }])
+        Ok(vec![ToolDefinition {
+            mcp_metadata: Default::default(),
+            name: self.tool.into(),
+            description: "host operation".into(),
+            input_schema: json!({"type":"object"}),
+        }])
     }
     fn call(&mut self, target: &Target, call: &ToolCall, cancel: &Cancellation) -> Result<Value, AiError> {
         cancel.check()?;
@@ -242,7 +247,12 @@ fn uncertain_host_failure_is_recorded_and_never_retried() {
     struct Uncertain(usize);
     impl ToolHost for Uncertain {
         fn tools(&mut self, _: &Target, _: &Cancellation) -> Result<Vec<ToolDefinition>, AiError> {
-            Ok(vec![ToolDefinition { name: "edit".into(), description: String::new(), input_schema: json!({"type":"object"}) }])
+            Ok(vec![ToolDefinition {
+                mcp_metadata: Default::default(),
+                name: "edit".into(),
+                description: String::new(),
+                input_schema: json!({"type":"object"}),
+            }])
         }
         fn call(&mut self, _: &Target, _: &ToolCall, _: &Cancellation) -> Result<Value, AiError> {
             self.0 += 1;
@@ -310,7 +320,12 @@ fn oversized_tool_result_keeps_completed_identity_in_recovery_history() {
     struct LargeResult;
     impl ToolHost for LargeResult {
         fn tools(&mut self, _: &Target, _: &Cancellation) -> Result<Vec<ToolDefinition>, AiError> {
-            Ok(vec![ToolDefinition { name: "edit".into(), description: String::new(), input_schema: json!({"type":"object"}) }])
+            Ok(vec![ToolDefinition {
+                mcp_metadata: Default::default(),
+                name: "edit".into(),
+                description: String::new(),
+                input_schema: json!({"type":"object"}),
+            }])
         }
         fn call(&mut self, _: &Target, _: &ToolCall, _: &Cancellation) -> Result<Value, AiError> {
             Ok(json!({"text":"x".repeat(8192)}))
@@ -340,11 +355,74 @@ fn oversized_tool_result_keeps_completed_identity_in_recovery_history() {
 }
 
 #[test]
+fn delegated_images_larger_than_text_budget_preserve_recovery_and_final_results() {
+    use base64::Engine;
+    struct ImageResult {
+        data: String,
+    }
+    impl ToolHost for ImageResult {
+        fn tools(&mut self, _: &Target, _: &Cancellation) -> Result<Vec<ToolDefinition>, AiError> {
+            Ok(vec![ToolDefinition {
+                name: "screenshot".into(),
+                description: String::new(),
+                input_schema: json!({"type":"object"}),
+                mcp_metadata: Default::default(),
+            }])
+        }
+        fn call(&mut self, _: &Target, _: &ToolCall, _: &Cancellation) -> Result<Value, AiError> {
+            Ok(json!({"content":[{"type":"image","mimeType":"image/png","data":self.data}],"isError":false,"structuredContent":{"width":1}}))
+        }
+    }
+    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+    bytes.resize(8192, 0);
+    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+    let mut host = ImageResult { data: data.clone() };
+    let mut req = request();
+    req.config.max_context_bytes = 4096;
+    let script = Script {
+        responses: Mutex::new(VecDeque::from([
+            call("delegate", "control_app", json!({"task":"inspect screenshot"})),
+            call("shot", "screenshot", json!({})),
+            Message::text(MessageRole::Assistant, "Screenshot inspected."),
+            call("second-delegate", "control_app", json!({"task":"inspect screenshot again"})),
+            call("second-shot", "screenshot", json!({})),
+            Message::text(MessageRole::Assistant, "Screenshot inspected again."),
+            Message::text(MessageRole::Assistant, "Done."),
+        ])),
+        models: Mutex::new(Vec::new()),
+    };
+    let mut recovery = None;
+    let messages = run_turn(req, &script, &mut host, &Cancellation::new(), |event| {
+        if let TurnEvent::Checkpoint { messages } = event {
+            for message in messages.iter().filter(|message| message.role == MessageRole::Tool) {
+                let value: Value = serde_json::from_str(&message.content).unwrap();
+                if value["status"] == "interrupted" && value["activity"][0]["outcome"] == "completed" {
+                    recovery = Some(value);
+                }
+            }
+        }
+    })
+    .unwrap();
+    let recovery = recovery.unwrap();
+    assert_eq!(recovery["activity"][0]["result"]["content"][0]["data"], data);
+    assert!(recovery["activity"][0].get("result_omitted").is_none());
+    let delegated = messages.iter().find(|message| message.tool_call_id.as_deref() == Some("delegate")).unwrap();
+    let result: Value = serde_json::from_str(&delegated.content).unwrap();
+    assert_eq!(result["activity"][0]["result"]["content"][0]["data"], data);
+    assert_eq!(messages.last().unwrap().content, "Done.");
+}
+
+#[test]
 fn tool_catalog_counts_toward_request_context_limit() {
     struct LargeCatalog;
     impl ToolHost for LargeCatalog {
         fn tools(&mut self, _: &Target, _: &Cancellation) -> Result<Vec<ToolDefinition>, AiError> {
-            Ok(vec![ToolDefinition { name: "edit".into(), description: "x".repeat(8192), input_schema: json!({"type":"object"}) }])
+            Ok(vec![ToolDefinition {
+                mcp_metadata: Default::default(),
+                name: "edit".into(),
+                description: "x".repeat(8192),
+                input_schema: json!({"type":"object"}),
+            }])
         }
         fn call(&mut self, _: &Target, _: &ToolCall, _: &Cancellation) -> Result<Value, AiError> {
             panic!("must not dispatch")
@@ -367,7 +445,16 @@ fn control_context_retains_prior_uncertain_tool_outcomes() {
                 let context = serde_json::to_string(request.messages).unwrap();
                 assert!(context.contains("uncertain-prior-edit"));
                 assert!(context.contains("unknown"));
-                assert!(request.messages.iter().all(|message| message.tool_calls.is_empty() && message.tool_call_id.is_none()));
+                let mut pending = std::collections::HashSet::new();
+                for message in request.messages {
+                    for call in &message.tool_calls {
+                        assert!(pending.insert(call.id.clone()));
+                    }
+                    if let Some(id) = &message.tool_call_id {
+                        assert!(pending.remove(id));
+                    }
+                }
+                assert!(pending.is_empty());
             }
             self.0.complete(request, cancel, emit)
         }
@@ -579,4 +666,81 @@ fn target_identity_is_opaque_data_not_runtime_instructions() {
     let mut host = Host { tool: "edit", calls: 0, cancel_on_list: false };
     run_turn(req, &Opaque, &mut host, &Cancellation::new(), |_| {}).unwrap();
     assert_eq!(host.calls, 0);
+}
+
+#[test]
+fn complete_181_tool_catalog_remains_callable_with_a_one_tool_provider_budget() {
+    struct Catalog {
+        calls: usize,
+    }
+    impl ToolHost for Catalog {
+        fn initial_read(&self) -> Option<(String, Value)> {
+            Some(("tool_180".into(), json!({"doc":42})))
+        }
+        fn tools(&mut self, _: &Target, _: &Cancellation) -> Result<Vec<ToolDefinition>, AiError> {
+            Ok((0..181)
+                .map(|index| ToolDefinition {
+                    name: format!("tool_{index}"),
+                    description: format!("Operation {index}"),
+                    input_schema: json!({"type":"object","properties":{"doc":{"type":"integer"}}}),
+                    mcp_metadata: std::collections::BTreeMap::from([("annotations".into(), json!({"readOnlyHint":true}))]),
+                })
+                .collect())
+        }
+        fn call(&mut self, target: &Target, call: &ToolCall, _: &Cancellation) -> Result<Value, AiError> {
+            self.calls += 1;
+            assert_eq!(target.id, "target-1");
+            assert_eq!(call.name, "tool_180");
+            assert_eq!(call.arguments, json!({"doc":42}));
+            Ok(json!({"content":[{"type":"text","text":"exact MCP result"}],"structuredContent":{"doc":42},"isError":false}))
+        }
+    }
+    struct Provider {
+        count: std::sync::atomic::AtomicUsize,
+    }
+    impl ChatProvider for Provider {
+        fn complete(&self, request: &ModelRequest<'_>, _: &Cancellation, _: &mut dyn FnMut(&str)) -> Result<Message, AiError> {
+            assert_eq!(request.tools.len(), 1);
+            assert_eq!(request.tools[0].name, "craft_mcp");
+            let step = self.count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(match step {
+                0 => call("schema", "craft_mcp", json!({"operation":"describe","name":"tool_180"})),
+                1 => {
+                    let schema: Value = serde_json::from_str(&request.messages.last().unwrap().content).unwrap();
+                    assert_eq!(schema["annotations"]["readOnlyHint"], true);
+                    call("execute", "craft_mcp", json!({"operation":"call","name":"tool_180","arguments":{"doc":42}}))
+                }
+                _ => {
+                    let result: Value = serde_json::from_str(&request.messages.last().unwrap().content).unwrap();
+                    assert_eq!(result["structuredContent"]["doc"], 42);
+                    Message::text(MessageRole::Assistant, "Complete")
+                }
+            })
+        }
+        fn models(&self, _: &Connection, _: &RuntimeConfig, _: &Cancellation) -> Result<Vec<ModelInfo>, AiError> {
+            Ok(Vec::new())
+        }
+    }
+    let mut req = request();
+    req.control = req.chat.clone();
+    req.config.max_tools = 1;
+    let mut host = Catalog { calls: 0 };
+    let provider = Provider { count: std::sync::atomic::AtomicUsize::new(0) };
+    let messages = run_turn(req, &provider, &mut host, &Cancellation::new(), |_| {}).unwrap();
+    assert_eq!(host.calls, 1);
+    assert_eq!(messages.last().unwrap().content, "Complete");
+
+    let mut delegated = request();
+    delegated.config.max_tools = 1;
+    let script = Script {
+        responses: Mutex::new(VecDeque::from([
+            call("delegate", "control_app", json!({"task":"inspect document 42"})),
+            Message::text(MessageRole::Assistant, "Inspected"),
+            Message::text(MessageRole::Assistant, "Complete"),
+        ])),
+        models: Mutex::new(Vec::new()),
+    };
+    let mut host = Catalog { calls: 0 };
+    run_turn(delegated, &script, &mut host, &Cancellation::new(), |_| {}).unwrap();
+    assert_eq!(host.calls, 1);
 }

@@ -99,7 +99,7 @@ impl Controller {
         self.error.as_deref()
     }
     pub fn owns_keyboard(&self) -> bool {
-        self.panel.as_ref().is_some_and(EmbeddedPanel::owns_keyboard)
+        !self.hidden && self.panel.as_ref().is_some_and(EmbeddedPanel::owns_keyboard)
     }
     pub fn executable(&self) -> Option<&std::path::Path> {
         self.executable.as_deref()
