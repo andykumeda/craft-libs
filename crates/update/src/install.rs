@@ -1257,11 +1257,13 @@ pub mod macos {
         pub team: Option<&'a str>,
         /// The release's version, which the bundle must report. `None` when the tag isn't one.
         pub version: Option<&'a Version>,
+        /// For custom assistant builds, values covered by the verified bundle signature.
+        pub assistant: Option<&'a crate::custom::Policy>,
     }
 
     impl<'a> Expect<'a> {
         pub fn release(release: &'a Release) -> Self {
-            Self { team: Some(TEAM_ID), version: release.version.as_ref() }
+            Self { team: Some(TEAM_ID), version: release.version.as_ref(), assistant: None }
         }
     }
 
@@ -1371,6 +1373,9 @@ pub mod macos {
             && !signed_by(bundle, team)
         {
             return Err("the app isn't signed by its developer, so it wasn't installed".into());
+        }
+        if let Some(policy) = expect.assistant {
+            policy.check_bundle(bundle)?;
         }
         if let Some(want) = expect.version
             && !found.version.as_ref().is_some_and(|v| same_release(v, want))
@@ -2753,7 +2758,7 @@ mod tests {
             std::fs::create_dir(&apps).unwrap();
             let paths = Paths::under(dir.path());
             let image = dmg(dir.path(), "0.6.0");
-            let expect = Expect { team: None, version: None };
+            let expect = Expect { team: None, version: None, assistant: None };
             let placed = install_dmg(photocraft(), &image, None, Some(&apps), false, &paths, &expect).unwrap();
             assert_eq!(placed, apps.join("PhotoCraft.app"));
             let mut manifest = crate::manifest::Manifest::default();
@@ -2785,8 +2790,15 @@ mod tests {
             let unrelated = std::fs::read_to_string(&plist).unwrap().replace("ai.storyteller.photocraft", "com.example.other");
             std::fs::write(&plist, &unrelated).unwrap();
             let image = dmg(dir.path(), "0.6.0");
-            let result =
-                install_dmg(photocraft(), &image, None, Some(dir.path()), false, &Paths::under(dir.path()), &Expect { team: None, version: None });
+            let result = install_dmg(
+                photocraft(),
+                &image,
+                None,
+                Some(dir.path()),
+                false,
+                &Paths::under(dir.path()),
+                &Expect { team: None, version: None, assistant: None },
+            );
             assert!(result.unwrap_err().contains("already exists"));
             assert_eq!(std::fs::read_to_string(plist).unwrap(), unrelated);
             assert_eq!(std::fs::read(placed.join("Contents/MacOS/PhotoCraft")).unwrap(), b"0.5.0");
@@ -2809,6 +2821,20 @@ mod tests {
         }
 
         #[test]
+        fn a_custom_update_without_the_bridge_preserves_the_installed_app() {
+            let dir = tempfile::tempdir().unwrap();
+            let apps = dir.path().join("Applications");
+            let current = bundle(&apps, "0.5.0");
+            let existing = Installed { version: None, source: InstallSource::MacApp, location: current.display().to_string(), package: None };
+            let image = dmg(dir.path(), "0.6.0");
+            let policy = crate::custom::Policy { repo: "example/photocraft".into(), macos_team_id: "ABC1234567".into(), bridge_protocol: 1 };
+            let expect = Expect { team: None, version: None, assistant: Some(&policy) };
+            let result = install_dmg(photocraft(), &image, Some(&existing), None, false, &Paths::under(dir.path()), &expect);
+            assert!(result.unwrap_err().contains("does not contain the configured assistant bridge"));
+            assert_eq!(std::fs::read_to_string(current.join("Contents/MacOS/PhotoCraft")).unwrap(), "0.5.0");
+        }
+
+        #[test]
         fn the_bundle_must_be_the_releases_version() {
             let dir = tempfile::tempdir().unwrap();
             let apps = dir.path().join("Applications");
@@ -2820,7 +2846,7 @@ mod tests {
             for (release, ok) in [("0.6.0", true), ("0.7.0", false), ("0.6.0-rc.1", true), ("0.5.0", false)] {
                 std::fs::write(current.join("Contents/MacOS/PhotoCraft"), "0.5.0").unwrap();
                 let want = version::parse(release).unwrap();
-                let expect = Expect { team: None, version: Some(&want) };
+                let expect = Expect { team: None, version: Some(&want), assistant: None };
                 let result = install_dmg(photocraft(), &image, Some(&existing), None, false, &paths, &expect);
                 assert_eq!(result.is_ok(), ok, "release {release}: {result:?}");
                 let now = std::fs::read_to_string(current.join("Contents/MacOS/PhotoCraft")).unwrap();
@@ -2837,7 +2863,7 @@ mod tests {
             // A bundle that names a pre-release must name the release's.
             let rc = dmg(dir.path(), "0.8.0-rc.2");
             let want = version::parse("0.8.0-rc.1").unwrap();
-            let expect = Expect { team: None, version: Some(&want) };
+            let expect = Expect { team: None, version: Some(&want), assistant: None };
             assert!(install_dmg(photocraft(), &rc, Some(&existing), None, false, &paths, &expect).is_err());
         }
 

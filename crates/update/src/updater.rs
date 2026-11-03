@@ -45,6 +45,7 @@ pub struct Updater {
     app: &'static App,
     version: String,
     source: Option<CheckSource>,
+    custom_policy: Option<Result<crate::custom::Policy, String>>,
     status: Status,
     /// The check running (or queued behind it) was asked for by the user.
     requested: bool,
@@ -63,6 +64,7 @@ impl Updater {
             app,
             version: version.into(),
             source: None,
+            custom_policy: None,
             status: Status::Idle,
             requested: false,
             started: false,
@@ -78,6 +80,22 @@ impl Updater {
     pub fn with_source(mut self, source: CheckSource) -> Self {
         self.source = Some(source);
         self
+    }
+
+    /// Restricts checks and installation to an explicitly configured assistant-enabled release.
+    /// An invalid policy reports an error and never falls back to the standard source.
+    pub fn with_custom_policy(mut self, policy: Result<crate::custom::Policy, String>) -> Self {
+        self.custom_policy = Some(policy);
+        self
+    }
+
+    /// The effective release repository, or `None` when explicit source configuration failed.
+    pub fn repository(&self) -> Option<&str> {
+        match &self.custom_policy {
+            Some(Ok(policy)) => Some(&policy.repo),
+            Some(Err(_)) => None,
+            None => Some(self.app.repo),
+        }
     }
 
     /// The check at start, once. Later calls do nothing.
@@ -129,11 +147,15 @@ impl Updater {
             return;
         }
         let (tx, rx) = channel();
-        let (source, app, version, ctx) = (self.source.clone(), self.app, self.version.clone(), ctx.clone());
+        let (source, policy, app, version, ctx) = (self.source.clone(), self.custom_policy.clone(), self.app, self.version.clone(), ctx.clone());
         let spawned = std::thread::Builder::new().name("update-check".into()).spawn(move || {
             let ask = || match source {
                 Some(ask) => ask(),
-                None => Http::new(&format!("{}/Update", app.name)).and_then(|http| check_for_update(app, &http, &version)),
+                None => match policy {
+                    Some(Err(error)) => Err(error),
+                    Some(Ok(policy)) => Http::new(&format!("{}/Update", app.name)).and_then(|http| policy.check(app, &http, &version)),
+                    None => Http::new(&format!("{}/Update", app.name)).and_then(|http| check_for_update(app, &http, &version)),
+                },
             };
             let answer =
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(ask)).unwrap_or_else(|_| Err("the update check failed unexpectedly".into()));
@@ -272,13 +294,21 @@ impl Updater {
             prompt.is_installing = false;
             return;
         };
+        let policy = match &self.custom_policy {
+            Some(Err(error)) => {
+                prompt.status_message = Some(error.clone());
+                return;
+            }
+            Some(Ok(policy)) => Some(policy.clone()),
+            None => None,
+        };
         prompt.is_installing = true;
         prompt.status_message = None;
         let (tx, rx) = channel();
         let (app, version, ctx, release) = (self.app, self.version.clone(), ctx.clone(), prompt.release.clone());
         let worker_release = release.clone();
         let spawned = std::thread::Builder::new().name("self-update".into()).spawn(move || {
-            let run = || install(app, &installed, worker_release, &version);
+            let run = || install(app, &installed, worker_release, &version, policy.as_ref());
             let outcome =
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).unwrap_or_else(|_| Err("the update failed unexpectedly".into()));
             let _ = tx.send(outcome);
@@ -294,16 +324,35 @@ impl Updater {
     }
 }
 
-fn install(app: &'static App, installed: &self_update::Install, mut release: Release, version: &str) -> Result<(), String> {
+fn install(
+    app: &'static App,
+    installed: &self_update::Install,
+    mut release: Release,
+    version: &str,
+    policy: Option<&crate::custom::Policy>,
+) -> Result<(), String> {
     let http = Http::new(&format!("{}/Update", app.name)).map_err(|e| format!("could not initialize HTTP: {e}"))?;
-    if release.assets.is_empty()
+    if policy.is_none()
+        && release.assets.is_empty()
         && let Some(full) = check_for_update(app, &http, version).map_err(|e| format!("could not fetch release assets: {e}"))?
     {
         release = full;
     }
     let paths = Paths::for_app(app).map_err(|e| format!("could not find paths: {e}"))?;
     let platform = Platform::current().ok_or("unsupported platform for self update")?;
-    self_update::update(app, installed, &release, platform, &http, &paths, &Stop::default(), &mut |_| {}, &|| Ok(()), Some(version))
+    self_update::update_with_policy(
+        app,
+        installed,
+        &release,
+        platform,
+        &http,
+        &paths,
+        &Stop::default(),
+        &mut |_| {},
+        &|| Ok(()),
+        Some(version),
+        policy,
+    )
 }
 
 #[cfg(test)]
@@ -322,6 +371,17 @@ mod tests {
             updater.tick(ctx);
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    #[test]
+    fn missing_custom_source_reports_error_without_offering_upstream() {
+        let ctx = egui::Context::default();
+        let mut updater = Updater::new(&PHOTOCRAFT, "0.1.0").with_custom_policy(Err("Configure sources.json".into()));
+        updater.check_now(&ctx);
+        settle(&mut updater, &ctx);
+        assert_eq!(updater.status(), &Status::Failed("Configure sources.json".into()));
+        assert!(!updater.prompt_open());
+        assert!(updater.install.is_none());
     }
 
     fn newer() -> Release {

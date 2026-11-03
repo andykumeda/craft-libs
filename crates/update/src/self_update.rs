@@ -303,6 +303,36 @@ pub fn update(
     last: &dyn Fn() -> Result<(), String>,
     running_version: Option<&str>,
 ) -> Result<(), String> {
+    update_with_policy(app, install, release, platform, http, paths, stop, phase, last, running_version, None)
+}
+
+/// Self-update with an explicit assistant-enabled publisher and signed bundle contract.
+/// Existing upstream consumers keep [`update`] and its original publisher policy.
+#[allow(clippy::too_many_arguments)]
+pub fn update_with_policy(
+    app: &App,
+    install: &Install,
+    release: &Release,
+    platform: Platform,
+    http: &Http,
+    paths: &Paths,
+    stop: &Stop,
+    phase: &mut dyn FnMut(JobPhase),
+    last: &dyn Fn() -> Result<(), String>,
+    running_version: Option<&str>,
+    custom_policy: Option<&crate::custom::Policy>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    if custom_policy.is_some() && !matches!(install, Install::MacApp(_)) {
+        return Err("Assistant-enabled app updates currently require a macOS app bundle.".into());
+    }
+    #[cfg(not(target_os = "macos"))]
+    if custom_policy.is_some() {
+        return Err("Assistant-enabled app updates currently require a macOS app bundle.".into());
+    }
+    if let Some(policy) = custom_policy {
+        policy.check_release(app, http, release)?;
+    }
     let cur_v = running_version.and_then(|v| current_version(app, v));
     if let (Some(rel_v), Some(cur_v)) = (release.version.as_ref(), cur_v.as_ref())
         && !version::is_newer(rel_v, cur_v)
@@ -329,7 +359,12 @@ pub fn update(
             #[cfg(target_os = "macos")]
             Install::MacApp(bundle) => {
                 let existing = Installed { version: None, source: InstallSource::MacApp, location: bundle.display().to_string(), package: None };
-                let placed = install::macos::install_dmg(app, &file, Some(&existing), None, false, paths, &install::macos::Expect::release(release));
+                let expect = install::macos::Expect {
+                    team: custom_policy.map(|policy| policy.macos_team_id.as_str()).or(Some(install::macos::TEAM_ID)),
+                    version: release.version.as_ref(),
+                    assistant: custom_policy,
+                };
+                let placed = install::macos::install_dmg(app, &file, Some(&existing), None, false, paths, &expect);
                 let _ = std::fs::remove_file(&file);
                 let placed = placed?;
                 relaunch_after_exit(pid, &[Path::new("/usr/bin/open").as_os_str(), placed.as_os_str()])
@@ -1500,7 +1535,7 @@ mod tests {
         let current = apps.join("ArtCraft Launcher.app");
         let existing = Installed { version: None, source: InstallSource::MacApp, location: current.display().to_string(), package: None };
         // An unsigned test bundle: the signature check has its own tests in `install`.
-        let expect = install::macos::Expect { team: None, version: None };
+        let expect = install::macos::Expect { team: None, version: None, assistant: None };
         let placed =
             install::macos::install_dmg(&crate::suite::LAUNCHER, &dmg, Some(&existing), None, false, &Paths::under(dir.path()), &expect).unwrap();
         assert_eq!(placed, current);
