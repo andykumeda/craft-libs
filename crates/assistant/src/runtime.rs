@@ -27,7 +27,8 @@ struct Panel {
 }
 impl Session {
     pub fn new(app_id: AppId, context: egui::Context) -> Self {
-        let faces: &[craft_fonts_build::EmbeddedFace] = include!(concat!(env!("OUT_DIR"), "/craft_fonts.rs"));
+        use craft_fonts_build::EmbeddedFace;
+        let faces: &[EmbeddedFace] = include!(concat!(env!("OUT_DIR"), "/craft_fonts.rs"));
         let faces: Vec<craft_ui::fonts::CraftFace> = faces.iter().copied().map(Into::into).collect();
         craft_ui::fonts::UiFonts::new(&craft_ui::fonts::I18nScripts).craft_faces(&faces).install(&context);
         Self {

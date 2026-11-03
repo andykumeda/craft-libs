@@ -1,9 +1,9 @@
+#[cfg(test)]
+use crate::wire::Modifiers;
 use crate::wire::{
     ACCESSIBILITY_SCHEMA, Accessibility, Ime, InputEvent, Limits, Mesh, PROTOCOL, PanelFrame, PanelInput, PlatformCommand, Surrounding, Texture,
     Vertex,
 };
-#[cfg(test)]
-use crate::wire::Modifiers;
 use crate::{Client, HelperMessage, HostMessage};
 use egui::{Color32, Pos2, Rect, Vec2};
 use std::collections::{HashMap, HashSet};

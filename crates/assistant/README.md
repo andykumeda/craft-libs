@@ -11,7 +11,7 @@ cargo build -p craft-assistant --features runtime
 cargo test -p craft-assistant --features runtime -j 2
 ```
 
-Release builds must provide the pinned optional craft-fonts build input for supported interface scripts (`CRAFT_FONTS_DIR`, with `CRAFT_FONTS_REQUIRED=1`); fonts never enter this repository. Default dependency fonts and their licenses are recorded in the root ATTRIBUTION.md and NOTICE. This crate does not embed proprietary system fonts. Without the optional input, unsupported scripts may show missing glyphs.
+Release builds must provide the pinned optional craft-fonts build input for supported interface scripts (`CRAFT_FONTS_DIR`, with `CRAFT_FONTS_REQUIRED=1`); fonts never enter this repository. Default dependency fonts and their licenses are recorded in the root ATTRIBUTION.md and NOTICE. This crate does not embed proprietary system fonts. Without the optional input, unsupported scripts may show missing glyphs. The helper embeds the licensed faces from the pinned manifest, including CJK faces, so its standalone UI does not depend on fonts in the host app.
 
 See [installation and release configuration](../../docs/assistant-install.md) for shared `component.json`, publisher identity, exact platform asset selection, limits, signed `.app` packaging and rollback. `CRAFT_AI_CONFIG_DIR` overrides the existing suite settings root. Missing, newer or invalid configuration fails explicitly without choosing another source/provider.
 
