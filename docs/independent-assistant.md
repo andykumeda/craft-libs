@@ -1,6 +1,6 @@
 # Independently updated assistant
 
-Status: independently updated assistant baseline committed; full MCP parity follow-up in progress, 2026-11-02. No installed runtime or release has been verified.
+Status: shared assistant and full MCP parity verified in source, 2026-11-02. Native qualification is partial; no installed release or signed update has been verified.
 
 The assistant remains embedded in PDFCraft, WordCraft and GridCraft. A shared executable owns its interface and native services; each app retains document authorization, editing and Undo. Private process pipes carry a versioned protocol. Model/provider selection and authentication use the existing suite-wide store and credential namespace. App overrides remain optional; chats and file grants remain app-separated.
 
@@ -11,14 +11,14 @@ The assistant remains embedded in PDFCraft, WordCraft and GridCraft. A shared ex
 | Embedding / transport agent | Input, rendering, IME and accessibility cross private pipes without exposing egui layouts | assistant-bridge | Protocol v1 | Verified | Bridge: 14 synthetic tests; native acceptance pending |
 | Assistant services / primary | Existing providers, settings and interrupted history work outside the host app | assistant | Bridge | Verified | Runtime/controller/proxy tests and four real helper-process tests; final counts below |
 | PDF integration / primary | Existing authorized PDF tool host drives the embedded helper | pdfcraft assistant adapter | Bridge/services | Verified | Production UI check + Clippy passed; live native acceptance pending; not deployed |
-| Word/Grid integration / primary | Same shared helper, isolated documents/history, existing automation preserved | Consumer assistant adapters | PDF embedding verification | Verified | Production UI checks passed; new app test modules and live native acceptance not run; not deployed |
+| Word/Grid integration / primary | Same shared helper, isolated documents/history, existing automation preserved | Consumer assistant adapters | PDF embedding verification | Verified | A3 Grid assistant34/control33/MCP24 and Clippy passed; Word assistant33/control26/MCP30 and Clippy passed; live Word/Grid acceptance pending; not deployed |
 | Component installation / installer agent | Verified immutable installs, compatible activation, locking and offline resolution | assistant-install | Protocol/schema versions | Verified | Installer: 13 synthetic tests; no real signature/release check |
 | App updates / updater agent | Configured compatible fork releases; no upstream fallback | update/custom and consumer updater modules | Signed compatibility metadata | Verified | Updater: final 176 passed / 4 ignored, including policy and incompatible-package regression; WordCraft personal fork created with approval; not deployed |
 | Delivery / primary | Assistant-only update changes all three panels with unchanged app binaries | Packaging, docs, focused commits | All previous work | Blocked | No published signed packages/source configuration; native acceptance and signed installation demonstration pending; not deployed |
 
 ## Verification and limitations
 
-Initial inspection: all four worktrees were clean. Current apps pin shared libraries at bf932b91643c287502d539b88f08abd5796c9447. Existing preview binaries disable self-updates. Disk headroom was initially constrained and has since recovered; focused checks continue. Shared craftrules instructions were unavailable locally and the repository API returned 404; repository-owned instructions remain applicable.
+Initial inspection: all four worktrees were clean. At initial inspection, apps pinned shared libraries at bf932b91643c287502d539b88f08abd5796c9447. Existing preview binaries disable self-updates. Disk headroom was initially constrained and has since recovered; focused checks continue. Shared craftrules instructions were unavailable locally and the repository API returned 404; repository-owned instructions remain applicable.
 
 Initial app rebuilds are required. Compatible helper releases do not rebuild the hosts; new app tool capabilities or bridge protocol requirements can require app releases. macOS is the first supported installation platform.
 
@@ -32,7 +32,7 @@ Global models/authentication reuse the existing shared store and secret namespac
 
 Production signing/notarization, release publication, installed app updates, native VoiceOver/IME/clipboard/performance, and a three-app assistant-only binary update demonstration remain unverified. Development checks do not imply those gates passed.
 
-## Final automated evidence
+## A2 automated evidence (historical)
 
 - `cargo test --offline -p craft-assistant -p craft-assistant-bridge -p craft-assistant-install -p craft-update --features craft-assistant/runtime,craft-update/egui -j 2 --quiet`: **228 passed, 4 ignored**, including 21 assistant unit tests, 4 real helper-process tests, 14 bridge tests, 13 installer tests and 176 updater tests. Loopback and synthetic macOS installer fixtures ran outside sandbox restrictions.
 - Scoped assistant runtime/all-target Clippy passed with warnings denied; bridge/installer/updater scoped Clippy passed.
@@ -49,15 +49,25 @@ Audit baseline: PDF 18/181 tools, Word 13/17, Grid 16/22; the A2 verified implem
 
 | Follow-up | Owner | State | Evidence |
 | --- | --- | --- | --- |
-| PDF full181 and shared MCP dispatch | PDF agent | In progress | Engine live-session parity test passed; GUI host6 and broader assistant24 passed; paragraph cache cross-turn regression passed |
-| Word full17 and normal GUI dispatch | Word agent | In progress | Production check passed; parity unit tests compiling |
-| Grid full22 and normal GUI dispatch | Grid agent | Verified | Assistant32, control33, MCP24 and all-target Clippy passed before final shared metadata contract pin |
-| Lossless descriptor metadata/discovery/images | Primary + provider agent | In progress | Native67 passed /5 ignored and all-target Clippy passed, including recovery images and two-delegation history; no real inference yet |
+| PDF full181 and shared MCP dispatch | PDF agent | Verified | Engine live-session parity test passed; Final Git-pin assistant25, remote3 and live-session MCP1 passed; all-target Clippy passed; native smoke below |
+| Word full17 and normal GUI dispatch | Word agent | Verified | Final Git-pin assistant33 /2 ignored and control26 passed; MCP30 and all-target Clippy passed; final dispatch extraction regression rerun3/3 passed |
+| Grid full22 and normal GUI dispatch | Grid agent | Verified | Final Git-pin assistant34, control33, MCP24 and all-target Clippy passed; full descriptor equality preserved |
+| Lossless descriptor metadata/discovery/images | Primary + provider agent | Verified | Native67 passed /5 ignored and all-target Clippy passed, including recovery images and two-delegation history; no real inference yet |
 
 WordCraft personal fork was created through the local Composio CLI after explicit user approval and the A2 branch pushed. No release/installed app/user configuration changed. Disk headroom recovered after earlier transient shortage; PDF A2 desktop+CLI linked and its two new adapter tests passed. A fresh focused regression reproduced keyboard ownership after hiding, then passed after the shared Controller fix; full helper rerun22unit+4process and Clippy passed.
 
 A3 provider transport preserves raw MCP JSON/history while adapting PNG content to native HTTP image blocks and Codex inputImage. Text-only continuations retain their prior bytes. Unsupported content types fail explicitly. The chosen model must accept image inputs; real inference remains untested.
 
-A3 final shared check: core222, native67, helper26, bridge14 and installer13 passed (342 total, 5 live native tests ignored). Scoped all-target Clippy passed for the changed core/native/helper crates. The repeated updater suite reached its macOS DMG fixtures and stalled in hdiutil/DiskImages; the preceding A2 run passed176 /4 ignored and no updater source changed in A3. Full repeat outcome pending.
+A3 final shared check: core222, native67, helper26, bridge14 and installer13 passed (342 total, 5 live native tests ignored). Scoped all-target Clippy passed for the changed core/native/helper crates. The repeated updater suite also passed176 /4 ignored; macOS DMG fixtures took376 seconds. The complete scoped shared run passed518 /9 ignored with no failures. No updater source changed in A3.
 
 Native acceptance attempt: an isolated PDF A2 debug app opened a contributor-created synthetic PDF and captured a 2x Retina main-window screenshot. Opening the helper remained blank, then authenticated control requests timed out on two attempts. A process sample showed the app main thread inside AppKit system-appearance/Dock image conversion; the helper was blocked writing to its bounded pipe after host polling stopped. Both known QA app/helper processes were stopped. This is a failed native acceptance gate, not a verified embedded panel; typing, IME and VoiceOver remain pending. No installed app or personal profile was used.
+
+A3 consumer final Git-pin verification: PDF assistant25 and live-session MCP1 passed, including entire-descriptor equality for all181 tools; scoped all-target UI/automation Clippy passed. Word/Grid final checks subsequently passed on the same c28f430 code pin; evidence is in the table above.
+
+Native follow-up: a disposable .app launched through LaunchServices rendered the helper inside PDF at2x and exposed the enabled multiline composer after loading synthetic no-auth settings. Subsequent input/close control calls again timed out. Later process samples showed normal egui frame processing, so the initial AppKit sample does not establish root cause. Rendering is observed; reliable input, streaming, IME, clipboard and VoiceOver are not accepted. Only temporary profiles/documents/provider fixtures were used.
+
+Native PDF qualification update (2026-11-02): rebuilt actual c28f430 consumers/helper passed coordinate typing, Enter/send, synthetic streaming, accessibility Focus with accented draft text, 2x Retina, window resize and dark-theme propagation with retained draft. A seven-step actual private-pipe MCP turn completed discovery, doc_list, doc_info, page_rotate, page_render PNG, edit_undo and final doc_info with no tool errors; native HTTP received an image_url block. Read-back confirmed page rotation0 and Undo returned dirty=false. Repeated the seven-step turn after explicit adoption of the freshly rebuilt helper. PDF SHA256 b2e84c6d69349d8ae5adf5a2cd13328ad7aabe6e5d827be772cfe4f1bc97cbc2; helper SHA25655ea11eedada3f071307092849d6c3c9460c60b79bb9d607cc7d3f4daf26792c. No real inference, credentials or installed bundles were involved. Earlier A2-preview timeouts remain recorded and their cause is unconfirmed; they did not recur during the rebuilt-app smoke. Native clipboard, real IME, VoiceOver, sustained scrolling/performance, Word/Grid native windows and signed update qualification remain pending.
+
+A3 consumer delivery: PDF cd2eb01d and Grid3748fef8 committed and pushed to personal fork task branches, both pinned to shared code c28f430. Native QA app quit normally with no unsaved-work confirmation needed after Undo; task-owned synthetic provider stopped. Temporary QA control/mock listeners are off and no proxy/fixed listener remains. No production app was installed or released.
+
+Final source delivery: Word05d5fb21 committed and pushed to its approved personal fork task branch. All three app commits and shared code c28f430 are on `codex/independent-assistant`; no main branch, installed bundle or public release changed. Word assistant33 /2 ignored, control26, MCP30, final remote3 and all-target UI/MCP Clippy passed. Full Word formatting and final diff checks passed. The only post-suite production edit extracted the existing dispatch loop to satisfy the complexity lint; its remote regression rerun passed.
