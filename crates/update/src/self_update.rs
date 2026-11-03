@@ -403,7 +403,11 @@ pub fn update_with_policy(
             Install::MacApp(bundle) => {
                 let existing = Installed { version: None, source: InstallSource::MacApp, location: bundle.display().to_string(), package: None };
                 let expect = install::macos::Expect {
-                    team: custom_policy.map(|policy| policy.macos_team_id.as_str()).or(Some(install::macos::TEAM_ID)),
+                    team: match custom_policy {
+                        Some(policy) if policy.local_certificate_sha1.is_some() => None,
+                        Some(policy) => Some(policy.macos_team_id.as_str()),
+                        None => Some(install::macos::TEAM_ID),
+                    },
                     version: release.version.as_ref(),
                     assistant: custom_policy,
                 };

@@ -1419,6 +1419,11 @@ pub mod macos {
 
     /// Checks a copied bundle against what its release promises, before it replaces anything.
     fn check(bundle: &Path, found: &Installed, expect: &Expect<'_>) -> Result<(), String> {
+        if let Some(hash) = expect.assistant.and_then(|policy| policy.local_certificate_sha1.as_deref())
+            && !signed_by_local_certificate(bundle, hash)
+        {
+            return Err("the app does not match the configured local signing certificate, so it wasn't installed".into());
+        }
         if let Some(team) = expect.team
             && !signed_by(bundle, team)
         {
@@ -1445,6 +1450,15 @@ pub mod macos {
         }
         let requirement = format!("=anchor apple generic and certificate leaf[subject.OU] = \"{team}\"");
         process::capture(CODESIGN, &["--verify", "--deep", "-R", &requirement, path], Duration::from_secs(120)).is_some()
+    }
+
+    fn signed_by_local_certificate(bundle: &Path, hash: &str) -> bool {
+        let Some(path) = bundle.to_str() else { return false };
+        if hash.len() != 40 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return false;
+        }
+        let requirement = format!("=certificate leaf = H\"{hash}\"");
+        process::capture(CODESIGN, &["--verify", "--strict", "--deep", "-R", &requirement, path], Duration::from_secs(120)).is_some()
     }
 
     /// Whether a bundle's version is the release's. A bundle that reports only the numbers
@@ -2953,7 +2967,12 @@ mod tests {
             let current = bundle(&apps, "0.5.0");
             let existing = Installed { version: None, source: InstallSource::MacApp, location: current.display().to_string(), package: None };
             let image = dmg(dir.path(), "0.6.0");
-            let policy = crate::custom::Policy { repo: "example/photocraft".into(), macos_team_id: "ABC1234567".into(), bridge_protocol: 1 };
+            let policy = crate::custom::Policy {
+                repo: "example/photocraft".into(),
+                macos_team_id: "ABC1234567".into(),
+                local_certificate_sha1: None,
+                bridge_protocol: 1,
+            };
             let expect = Expect { team: None, version: None, assistant: Some(&policy) };
             let result = install_dmg(photocraft(), &image, Some(&existing), None, false, &Paths::under(dir.path()), &expect);
             assert!(result.unwrap_err().contains("does not contain the configured assistant bridge"));

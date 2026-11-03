@@ -10,6 +10,7 @@ fn configured(root: PathBuf) -> ComponentConfig {
             root,
             publisher_team_id: "TESTTEAM".into(),
             signing_identifier: "org.craft.assistant.test".into(),
+            local_certificate_sha1: None,
             limits: craft_assistant_install::Limits::default(),
         },
         source: SourceConfig { repo: "example/assistant".into(), asset_name: "assistant-macos-arm64.tar.gz".into() },

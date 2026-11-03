@@ -99,6 +99,9 @@ pub struct Config {
     pub root: PathBuf,
     pub publisher_team_id: String,
     pub signing_identifier: String,
+    /// Explicit local-only trust: pin the signing certificate's macOS SHA-1 identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_certificate_sha1: Option<String>,
     #[serde(default)]
     pub limits: Limits,
 }
@@ -118,6 +121,9 @@ impl Config {
             || !self.signing_identifier.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'-' | b'_'))
         {
             return Err("Configure a valid assistant code-signing identifier.".into());
+        }
+        if self.local_certificate_sha1.as_ref().is_some_and(|hash| hash.len() != 40 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())) {
+            return Err("The local signing certificate identity must be exactly 40 hexadecimal characters.".into());
         }
         let limits = &self.limits;
         if limits.archive_bytes == 0
@@ -331,15 +337,18 @@ fn inside_app_bundle(path: &Path) -> bool {
 #[cfg(target_os = "macos")]
 fn verify_signature(bundle: &Path, config: &Config, assess: bool) -> Result<(), String> {
     use std::time::Duration;
-    let requirement = format!(
-        "=anchor apple generic and certificate leaf[subject.OU] = \"{}\" and identifier \"{}\"",
-        config.publisher_team_id, config.signing_identifier
-    );
+    let requirement = match &config.local_certificate_sha1 {
+        Some(hash) => format!("=certificate leaf = H\"{hash}\" and identifier \"{}\"", config.signing_identifier),
+        None => format!(
+            "=anchor apple generic and certificate leaf[subject.OU] = \"{}\" and identifier \"{}\"",
+            config.publisher_team_id, config.signing_identifier
+        ),
+    };
     let mut command = std::process::Command::new("/usr/bin/codesign");
     command.args(["--verify", "--strict", "--deep", "-R", &requirement]).arg(bundle);
     craft_update::process::run_command(command, "codesign", Duration::from_secs(config.limits.verification_timeout_secs))
         .map_err(|_| "The assistant signature is invalid or belongs to a different publisher. The current installation was preserved.".to_string())?;
-    if assess {
+    if assess && config.local_certificate_sha1.is_none() {
         let mut command = std::process::Command::new("/usr/sbin/spctl");
         command.args(["--assess", "--type", "execute"]).arg(bundle);
         craft_update::process::run_command(command, "spctl", Duration::from_secs(config.limits.verification_timeout_secs)).map_err(|_| {
@@ -507,6 +516,7 @@ mod tests {
             root: root.to_path_buf(),
             publisher_team_id: "TESTTEAM".into(),
             signing_identifier: "org.craft.assistant.test".into(),
+            local_certificate_sha1: None,
             limits: Limits::default(),
         })
         .unwrap()
@@ -725,6 +735,18 @@ mod tests {
         assert!(store.resolve_checked(&HOST, accept).unwrap_err().contains("Install assistant"));
         std::fs::write(store.config.root.join("active.json"), b"{").unwrap();
         assert!(store.resolve_checked(&HOST, accept).unwrap_err().contains("left untouched"));
+    }
+
+    #[test]
+    fn local_certificate_pin_requires_an_exact_hexadecimal_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut config = store(temp.path()).config;
+        for invalid in ["", "abc", "000000000000000000000000000000000000000Z"] {
+            config.local_certificate_sha1 = Some(invalid.into());
+            assert!(Store::new(config.clone()).is_err());
+        }
+        config.local_certificate_sha1 = Some("0123456789abcdef0123456789ABCDEF01234567".into());
+        assert!(Store::new(config).is_ok());
     }
 
     #[test]

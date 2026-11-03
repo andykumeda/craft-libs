@@ -57,7 +57,7 @@ The compressed checksum verifies download integrity against the selected release
 publisher authenticity. The installer runs `/usr/bin/codesign --verify --strict --deep` with an
 Apple trust anchor, pinned team and pinned signing identifier; then `/usr/sbin/spctl --assess
 --type execute` must approve the bundle. Verification commands use `craft-update`'s bounded
-subprocess runner. There is no production bypass for unsigned or ad-hoc-signed packages.
+subprocess runner. There is no bypass for unsigned or ad-hoc-signed packages. For explicitly configured local-only deployments, `local_certificate_sha1` pins the exact 40-hex macOS certificate identity instead of an Apple team and anchor; codesign still verifies the signature and identifier. Because local self-signed packages are not notarized, this explicit mode omits Gatekeeper assessment. It does not fall back to local trust when production verification fails.
 Publisher checks use safe argument passing, never shell interpolation. On other platforms,
 installation fails explicitly as unsupported.
 
@@ -152,3 +152,13 @@ assistant package.
 | Date | Change |
 | --- | --- |
 | 2026-11-02 | Add shared immutable bundle installation and explicit activation contract |
+
+## Local-only signing
+
+Set `installation.local_certificate_sha1` to the exact identity of the certificate used to sign the helper, and set `installation.signing_identifier` to its bundle identifier. The existing `publisher_team_id` field remains required for configuration compatibility but is not used in local-only verification. Distribute only the signed bundle and public certificate identity to the second Mac; keep the private signing key on the signing Mac. Both installation and later offline resolution require the same pinned signer and identifier. The signed package is not notarized and is intended only for these explicitly configured devices. The signature does not protect against compromise of that private key.
+
+On 2026-11-02, a disposable bundle signed with the local identity passed the pinned `codesign --verify --strict --deep` requirement on both Macs; a wrong certificate identity was rejected on the Mini. This is a signature feasibility check, not an installed assistant update or a Gatekeeper/notarization acceptance.
+
+Assistant-enabled app update policies also accept the optional `local_certificate_sha1` field. In local-only mode the updater verifies the app bundle against this exact certificate before replacement and still checks signed bundle identity, repository, version and assistant protocol. Without that explicit field the original Apple Developer ID team requirement remains in force. Update checks still use the explicitly configured GitHub release source; no local release feed or published packages have been configured by this change.
+
+Scoped tests on the merged source: 289 passed, 3 ignored, with 8 macOS disk-image or self-replacement checks excluded from this run. No installed update was performed by these tests.

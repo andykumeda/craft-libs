@@ -19,6 +19,9 @@ const MANIFEST_ASSET: &str = "craft-assistant-app.json";
 pub struct Policy {
     pub repo: String,
     pub macos_team_id: String,
+    /// Explicit local-only certificate identity; ordinary releases continue to require Apple trust.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_certificate_sha1: Option<String>,
     pub bridge_protocol: u32,
 }
 
@@ -77,6 +80,9 @@ impl Policy {
         }
         if self.macos_team_id.len() != 10 || !self.macos_team_id.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()) {
             return Err("Configure the custom release publisher's ten-character Apple Developer team ID.".into());
+        }
+        if self.local_certificate_sha1.as_ref().is_some_and(|hash| hash.len() != 40 || !hash.bytes().all(|b| b.is_ascii_hexdigit())) {
+            return Err("The local signing certificate identity must be exactly 40 hexadecimal characters.".into());
         }
         if bridge_protocol == 0 || self.bridge_protocol != bridge_protocol {
             return Err(format!(
@@ -173,7 +179,7 @@ mod tests {
     use super::*;
 
     fn policy() -> Policy {
-        Policy { repo: "my-account/pdfcraft".into(), macos_team_id: "ABC1234567".into(), bridge_protocol: 1 }
+        Policy { repo: "my-account/pdfcraft".into(), macos_team_id: "ABC1234567".into(), local_certificate_sha1: None, bridge_protocol: 1 }
     }
 
     #[test]
@@ -187,6 +193,8 @@ mod tests {
         assert!(Policy::parse(&serde_json::to_vec(&json).unwrap(), app, 2).is_err());
         assert!(Policy { repo: "https://github.com/a/b".into(), ..policy() }.validate(1).is_err());
         assert!(Policy { macos_team_id: String::new(), ..policy() }.validate(1).is_err());
+        assert!(Policy { local_certificate_sha1: Some("invalid".into()), ..policy() }.validate(1).is_err());
+        assert!(Policy { local_certificate_sha1: Some("0123456789abcdef0123456789ABCDEF01234567".into()), ..policy() }.validate(1).is_ok());
         assert!(Policy { repo: "../pdfcraft".into(), ..policy() }.validate(1).is_err());
     }
 
