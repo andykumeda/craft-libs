@@ -1,0 +1,10 @@
+# Two-Mac assistant rollout
+
+Updated 2026-11-02. Scope: PDFCraft, WordCraft, GridCraft and the shared assistant on AKsMini and AKs-MBPro.local. Preserve existing documents, settings, credentials, launchers and rollback copies. Installation requires a working, authenticated shared assistant package and compatible app bundles; verify each app with a synthetic document and a read-only MCP request before marking it deployed.
+
+| Device | Components | State | Current evidence and remaining work |
+| --- | --- | --- | --- |
+| AKsMini | PDF, Word, Grid, shared assistant | Blocked | Assistant previews are 0.15.0, 0.12.0 and 0.13.0. Standard apps are 0.18.0, 0.15.0 and 0.16.0; task source versions are 0.15.0, 0.12.0 and 0.13.0, so replacing the standard apps would downgrade them. Shared assistant has no published signed package or configured publisher. Available signing identities include Apple Development and local identities; no Developer ID Application identity was listed. |
+| AKs-MBPro.local | PDF, Word, Grid, shared assistant | Blocked | SSH as andy succeeded; macOS 27.2 arm64. PDF preview 0.15.0, Word preview 0.11.0; standard PDF 0.14.0, Word 0.11.0 and Grid 0.12.1. No Grid assistant preview was found under /Applications. Shared assistant package and app builds still require preparation and validation. |
+
+All four source branches were clean and pushed at the start of this rollout. Desktop Commander reported both devices offline, but direct SSH to the MacBook succeeded; no access handoff is needed at present. No installed app or user settings were modified by this inspection. Existing assistant preview signatures are ad hoc. Production assistant installation rejects ad hoc and Apple Development signatures: it requires a configured Developer ID publisher and Gatekeeper-approved package. Do not disable verification to bypass that contract. The customized branches must be reconciled with newer standard app releases before replacing those apps, and an authenticated assistant package must be prepared before deploying shared-helper app builds.
