@@ -1,6 +1,6 @@
 # Independently updated assistant
 
-Status: the local certificate-pinned assistant and three customized apps are installed on both Macs. Source-level MCP parity is verified; native qualification and the independent-update demonstration remain partial. See [two-Mac rollout](two-mac-rollout.md) for current device-specific evidence and limitations. No public releases have been published.
+Status (2026-11-03): local certificate-pinned assistant0.1.1 is installed and its independent UI update passed native checks in all three existing apps on both Macs. Compact rebuilt hosts are in progress; earlier qualification remains historical below. Source-level MCP parity is verified; native qualification and the independent-update demonstration remain partial. See [two-Mac rollout](two-mac-rollout.md) for current device-specific evidence and limitations. No public releases have been published.
 
 The assistant remains embedded in PDFCraft, WordCraft and GridCraft. A shared executable owns its interface and native services; each app retains document authorization, editing and Undo. Private process pipes carry a versioned protocol. Model/provider selection and authentication use the existing suite-wide store and credential namespace. App overrides remain optional; chats and file grants remain app-separated.
 

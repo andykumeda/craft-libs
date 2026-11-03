@@ -1,6 +1,6 @@
 # Two-Mac assistant rollout
 
-Updated 2026-11-02. Scope: PDFCraft, WordCraft, GridCraft and the shared assistant on AKsMini and AKs-MBPro.local. Preserve existing documents, settings, credentials, launchers and rollback copies. Installation requires a working, authenticated shared assistant package and compatible app bundles; verify each app with a synthetic document and a read-only MCP request before marking it deployed.
+Updated 2026-11-03. Current compact-layout rollout is recorded below; the first table preserves the previous release checkpoint. Scope: PDFCraft, WordCraft, GridCraft and the shared assistant on AKsMini and AKs-MBPro.local. Preserve existing documents, settings, credentials, launchers and rollback copies. Installation requires a working, authenticated shared assistant package and compatible app bundles; verify each app with a synthetic document and a read-only MCP request before marking it deployed.
 
 | Device | Component | State | Current evidence and remaining work |
 | --- | --- | --- | --- |
@@ -58,8 +58,8 @@ Scope: shared assistant 0.1.1 and compatible PDFCraft/WordCraft/GridCraft hosts,
 
 | Device | Component / owner | Target | State | Acceptance / evidence | Remaining activation |
 | --- | --- | --- | --- | --- | --- |
-| AKsMini | Shared helper / primary | 0.1.1 | In progress | Signed bundle, installer resolution, three app handshakes, native panels | Build/package/install |
-| AKs-MBPro.local | Shared helper / primary | 0.1.1 | In progress | Same archive hash, signature, resolution, three app handshakes | Build/package/install |
+| AKsMini | Shared helper / primary | 0.1.1 | Deployed | Certificate-pinned install, three handshakes, unchanged-host PDF/Word/Grid native panels + synthetic MCP passed; 0.1.0 retained | Complete |
+| AKs-MBPro.local | Shared helper / primary | 0.1.1 | Deployed | Same signed archive/executable, three handshakes and unchanged-host PDF/Word/Grid native panel + synthetic MCP checks passed | Complete |
 | AKsMini | PDFCraft / primary | Compact host | In progress | Signed standard+preview, synthetic panel/settings/update/file/model controls | Build/package/install |
 | AKs-MBPro.local | PDFCraft / primary | Compact host | In progress | Same signed bundles, independent native smoke | Build/package/install |
 | AKsMini | WordCraft / Word workstream | Compact host | In progress | Source gates, signed standard+preview, native panel and MCP smoke | Prepare candidates |
@@ -68,3 +68,7 @@ Scope: shared assistant 0.1.1 and compatible PDFCraft/WordCraft/GridCraft hosts,
 | AKs-MBPro.local | GridCraft / Grid workstream | Compact host | In progress | Standard only (no preview installed), independent native smoke | Prepare candidates |
 
 Local network discovery changed: MacBook mDNS lookup failed, but its verified Tailscale peer is online and SSH confirmed the expected hostname, arm64 and macOS27.2. No service/proxy configuration changed.
+
+Helper package83e61084 was built with required open-font pinb076417b and signed using the configured local certificate. Archive SHA-256 `182d4aeaf186d8f48d8115e3bbbc5dba50048559b2202ac3ac786fed40174197`; signed executable `27fa802aeb588b08a5e93c81f5d3b570f207daa39bc8749c66151f9b4848f403`. Real installer activated0.1.1 with previous0.1.0 on both devices. Before/after checks confirmed the configuration files and every installed app executable stayed byte-identical during helper installation. All three app-ID private-pipe handshakes passed separately on both devices. Mini's existing PDF standard/preview, Word standard and Grid standard loaded the new helper; synthetic MCP/read/render and normal cleanup passed, with no inference. Native screenshots show the compact helper UI; the old hosts still correctly retain their old update toolbar until rebuilt.
+
+MacBook helper-only native acceptance also passed: PDF standard/preview typing, Settings, resize/theme, compact labels and eight synthetic MCP operations; Word standard17-tool edit/read/Undo/Redo/save/reopen/render; Grid standard22-tool listing and expected synthetic cell reads. All test-owned apps quit normally and listeners released. No model inference or personal settings were used. This completes the independent assistant-only update demonstration on both Macs with unchanged host executable hashes. Rebuilt-host update-control placement remains in progress.
