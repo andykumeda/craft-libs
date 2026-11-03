@@ -1,6 +1,6 @@
 # Independently updated assistant
 
-Status: shared assistant and full MCP parity verified in source, 2026-11-02. Native qualification is partial; no installed release or signed update has been verified.
+Status: the local certificate-pinned assistant and three customized apps are installed on both Macs. Source-level MCP parity is verified; native qualification and the independent-update demonstration remain partial. See [two-Mac rollout](two-mac-rollout.md) for current device-specific evidence and limitations. No public releases have been published.
 
 The assistant remains embedded in PDFCraft, WordCraft and GridCraft. A shared executable owns its interface and native services; each app retains document authorization, editing and Undo. Private process pipes carry a versioned protocol. Model/provider selection and authentication use the existing suite-wide store and credential namespace. App overrides remain optional; chats and file grants remain app-separated.
 
@@ -10,11 +10,11 @@ The assistant remains embedded in PDFCraft, WordCraft and GridCraft. A shared ex
 | --- | --- | --- | --- | --- | --- |
 | Embedding / transport agent | Input, rendering, IME and accessibility cross private pipes without exposing egui layouts | assistant-bridge | Protocol v1 | Verified | Bridge: 14 synthetic tests; native acceptance pending |
 | Assistant services / primary | Existing providers, settings and interrupted history work outside the host app | assistant | Bridge | Verified | Runtime/controller/proxy tests and four real helper-process tests; final counts below |
-| PDF integration / primary | Existing authorized PDF tool host drives the embedded helper | pdfcraft assistant adapter | Bridge/services | Verified | Production UI check + Clippy passed; live native acceptance pending; not deployed |
-| Word/Grid integration / primary | Same shared helper, isolated documents/history, existing automation preserved | Consumer assistant adapters | PDF embedding verification | Verified | A3 Grid assistant34/control33/MCP24 and Clippy passed; Word assistant33/control26/MCP30 and Clippy passed; live Word/Grid acceptance pending; not deployed |
-| Component installation / installer agent | Verified immutable installs, compatible activation, locking and offline resolution | assistant-install | Protocol/schema versions | Verified | Installer: 13 synthetic tests; no real signature/release check |
-| App updates / updater agent | Configured compatible fork releases; no upstream fallback | update/custom and consumer updater modules | Signed compatibility metadata | Verified | Updater: final 176 passed / 4 ignored, including policy and incompatible-package regression; WordCraft personal fork created with approval; not deployed |
-| Delivery / primary | Assistant-only update changes all three panels with unchanged app binaries | Packaging, docs, focused commits | All previous work | Blocked | No published signed packages/source configuration; native acceptance and signed installation demonstration pending; not deployed |
+| PDF integration / primary | Existing authorized PDF tool host drives the embedded helper | pdfcraft assistant adapter | Bridge/services | Verified | Guarded 0.18.0 installed on both Macs; installed native smoke pending; see two-Mac rollout |
+| Word/Grid integration / primary | Same shared helper, isolated documents/history, existing automation preserved | Consumer assistant adapters | PDF embedding verification | Verified | Guarded Word 0.15.0 and Grid 0.16.0 installed on both Macs; isolated native helper and synthetic MCP smoke passed; see two-Mac rollout |
+| Component installation / installer agent | Verified immutable installs, compatible activation, locking and offline resolution | assistant-install | Protocol/schema versions | Verified | Locally certificate-pinned 0.1.0 installed on both Macs; real signature and private-pipe handshakes verified; public release remains separate |
+| App updates / updater agent | Configured compatible fork releases; no upstream fallback | update/custom and consumer updater modules | Signed compatibility metadata | Verified | Fork sources and local certificate pin configured on both Macs; update activation from published assets not demonstrated |
+| Delivery / primary | Assistant-only update changes all three panels with unchanged app binaries | Packaging, docs, focused commits | All previous work | Blocked | No published signed update assets; assistant-only update across all three unchanged app binaries and app update activation remain to be demonstrated |
 
 ## Verification and limitations
 
