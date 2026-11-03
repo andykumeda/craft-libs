@@ -71,3 +71,19 @@ Native PDF qualification update (2026-11-02): rebuilt actual c28f430 consumers/h
 A3 consumer delivery: PDF cd2eb01d and Grid3748fef8 committed and pushed to personal fork task branches, both pinned to shared code c28f430. Native QA app quit normally with no unsaved-work confirmation needed after Undo; task-owned synthetic provider stopped. Temporary QA control/mock listeners are off and no proxy/fixed listener remains. No production app was installed or released.
 
 Final source delivery: Word05d5fb21 committed and pushed to its approved personal fork task branch. All three app commits and shared code c28f430 are on `codex/independent-assistant`; no main branch, installed bundle or public release changed. Word assistant33 /2 ignored, control26, MCP30, final remote3 and all-target UI/MCP Clippy passed. Full Word formatting and final diff checks passed. The only post-suite production edit extracted the existing dispatch loop to satisfy the complexity lint; its remote regression rerun passed.
+
+## Host app restart safety
+
+`Controller::restart_safe()` is a read-only app-update guard. It rejects active/queued turns,
+tool requests, pending file choice, startup/handshake, unacknowledged panel frames, helper
+update/snapshot work, and ready-helper busy/draft/settings states. Missing or failed helpers
+without a transport do not block ordinary app updates. Hosts additionally guard their own
+in-progress tool dispatch and document/save/print work.
+
+Frames remain conservatively pending even when only rendering. If an app update is deferred
+while the assistant panel is visible, finish or stop its turn, save assistant settings and close
+the panel before restarting. The guard does not acknowledge input, stop a chat or replay edits.
+
+Verification: both new controller regressions passed, all 23 helper-library tests passed,
+and scoped all-target Clippy, formatting and diff checks passed. This additive API changes no
+wire types and no installed application.
