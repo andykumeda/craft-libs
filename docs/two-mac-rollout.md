@@ -5,11 +5,11 @@ Updated 2026-11-02. Scope: PDFCraft, WordCraft, GridCraft and the shared assista
 | Device | Component | State | Current evidence and remaining work |
 | --- | --- | --- | --- |
 | AKsMini | Shared assistant | Verified | Locally signed 0.1.0 installed outside app bundles; signature and active pointer verified. Private-pipe handshakes passed for all three app IDs. Awaiting updated app panels. |
-| AKsMini | PDFCraft | In progress | Guarded standard and preview 0.18.0 installed with backups; isolated installed-panel smoke pending. |
+| AKsMini | PDFCraft | Deployed | Guarded standard and preview 0.18.0 installed with backups; isolated panel, input and synthetic MCP smoke passed. |
 | AKsMini | WordCraft | Deployed | Guarded standard and preview 0.15.0 installed with backups; isolated installed helper and synthetic editing/MCP smoke passed. |
 | AKsMini | GridCraft | Deployed | Guarded 0.16.0 standard and preview installed with backups; isolated installed-panel, helper connection and synthetic MCP read smoke passed. |
 | AKs-MBPro.local | Shared assistant | Verified | Same signed 0.1.0 package installed; signature and active pointer verified. Private-pipe handshakes passed for all three app IDs. Awaiting updated app panels. |
-| AKs-MBPro.local | PDFCraft | In progress | Guarded standard and preview 0.18.0 installed with backups; isolated installed-panel smoke pending. |
+| AKs-MBPro.local | PDFCraft | Deployed | Guarded standard and preview 0.18.0 installed with backups; isolated panel, input and synthetic MCP smoke passed. |
 | AKs-MBPro.local | WordCraft | Deployed | Guarded standard and preview 0.15.0 installed with backups; isolated installed helper and synthetic editing/MCP smoke passed. |
 | AKs-MBPro.local | GridCraft | Deployed | Guarded 0.16.0 standard installed with backup; isolated installed-panel, helper connection and synthetic MCP read smoke passed. No preview was present. |
 
@@ -49,3 +49,5 @@ WordCraft standard 0.15.0 from source `8762d9869fe92fd61a2894b0085b4f458b5ca13b`
 WordCraft preview 0.15.0 was installed on both Macs with original bundles backed up. Installed standard-app tests on each Mac used isolated settings and a synthetic document: the assistant helper connected, all 17 MCP tools were listed, and edit/read/Undo/Redo, formatting, save/reopen and PNG rendering succeeded. Test-owned apps and listeners exited normally; no inference or personal credentials were used. Live IME, clipboard, VoiceOver and actual app-update activation remain unverified.
 
 PDFCraft guarded standard and preview 0.18.0 were installed on both Macs with previous bundles backed up under `~/Applications/Craft Rollout Backups/2026-11-02/`. An initial candidate was safely refused for missing signed compatibility metadata; the corrected packaging recipe `7881a92305d468588cb5c271baa0b0689e542a72` supplied protocol 1 and fork repository metadata before signing. Final native code is from `8e86f96f564346bf893422dc0b3359d89bf64287`; its signed CLI is installed and selected on both Macs. The Mini config and MacBook approved-version record were backed up. Installed-panel and synthetic document smoke are pending.
+
+PDFCraft installed standard and preview smoke passed on both Macs with isolated profiles and synthetic PDF data. Each panel rendered the installed assistant, accepted and cleared a draft, resized and switched theme; each CLI listed 183 tools and passed eight synthetic MCP operations. Test instances quit normally and released their listeners. No inference or personal credentials were used; real IME, clipboard, VoiceOver and actual update activation remain unverified.
