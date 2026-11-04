@@ -3,7 +3,7 @@
 
 use craft_ai_core::assistant::{AssistantRole, Message, MessageRole};
 use craft_ai_core::{ConnectionDraft, ConnectionId, Prepared};
-use egui::{Id, RichText, Ui};
+use egui::{Id, Ui};
 
 mod settings;
 pub use settings::{RoleEdit, SettingsState, settings};
@@ -181,21 +181,14 @@ fn transcript(ui: &mut Ui, state: &State, tr: &impl Fn(&str) -> String) {
         ui.label(tr("Ask a question or describe a document change."));
     }
     for (index, message) in state.messages.iter().enumerate() {
-        if message.role == MessageRole::System {
+        if matches!(message.role, MessageRole::System | MessageRole::Tool) {
             continue;
         }
-        let speaker = match message.role {
-            MessageRole::User => "You",
-            MessageRole::Assistant => "Assistant",
-            MessageRole::Tool => "Tool result",
-            MessageRole::System => "System",
-        };
+        if message.role == MessageRole::Assistant && message.content.is_empty() {
+            continue;
+        }
         ui.push_id(index, |ui| {
-            if message.role == MessageRole::Tool {
-                egui::CollapsingHeader::new(tr(speaker)).show(ui, |ui| {
-                    ui.label(&message.content);
-                });
-            } else if message.role == MessageRole::User {
+            if message.role == MessageRole::User {
                 let width = (ui.available_width() * 0.85 - 16.0).max(1.0);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                     egui::Frame::new().fill(ui.visuals().faint_bg_color).corner_radius(12.0).inner_margin(8.0).show(ui, |ui| {
@@ -207,20 +200,8 @@ fn transcript(ui: &mut Ui, state: &State, tr: &impl Fn(&str) -> String) {
                 });
             } else {
                 ui.add(egui::Label::new(&message.content).wrap());
-                for call in &message.tool_calls {
-                    ui.small(format!("{}: {}", tr("Tool"), call.name));
-                }
             }
             ui.add_space(8.0);
-        });
-    }
-    for (index, activity) in state.activity.iter().enumerate() {
-        ui.push_id(("activity", index), |ui| {
-            let label =
-                if activity.failed { RichText::new(&activity.label).color(ui.visuals().error_fg_color) } else { RichText::new(&activity.label) };
-            egui::CollapsingHeader::new(label).show(ui, |ui| {
-                ui.label(&activity.detail);
-            });
         });
     }
 }

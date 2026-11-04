@@ -452,3 +452,25 @@ fn composer_model_layout_stays_stable_between_frames() {
         }
     }
 }
+
+#[test]
+fn transcript_hides_tool_messages_and_activity_but_keeps_conversation() {
+    use egui_kittest::kittest::Queryable;
+    let mut pane = State {
+        messages: vec![
+            Message::text(MessageRole::User, "Please edit"),
+            Message::text(MessageRole::Assistant, "Done editing"),
+            Message::text(MessageRole::Tool, "internal result"),
+        ],
+        activity: vec![Activity { label: "save_document".into(), detail: "internal activity".into(), failed: false }],
+        ..Default::default()
+    };
+    let mut harness = egui_kittest::Harness::builder().build_ui(|ui| {
+        let _ = show(ui, Id::unique("hidden-tools"), &mut pane, str::to_owned);
+    });
+    harness.run();
+    assert!(harness.query_by_label("Please edit").is_some());
+    assert!(harness.query_by_label("Done editing").is_some());
+    assert!(harness.query_by_label("Tool result").is_none());
+    assert!(harness.query_by_label("save_document").is_none());
+}

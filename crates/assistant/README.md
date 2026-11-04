@@ -54,3 +54,5 @@ The navigation refinement ships as helper0.1.2 without another host rebuild (pro
 Idle panels check the shared connection/runtime files and app-specific history directory for changes before reloading them.
 Unchanged settings keep the composer model picker enabled; explicit Reload settings and
 actual shared-file changes retain the existing validated reload path.
+
+Tool calls, results and activity details remain in assistant state but are hidden from the conversation display.
