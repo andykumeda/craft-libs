@@ -430,3 +430,25 @@ fn new_chat_and_saved_history_have_explicit_separate_controls() {
     harness.run();
     assert!(matches!(harness.state().actions.last(), Some(Action::OpenChat(id)) if id=="saved"));
 }
+
+#[test]
+fn composer_model_layout_stays_stable_between_frames() {
+    use egui_kittest::kittest::Queryable as _;
+    for width in [280.0, 338.0, 420.0] {
+        let mut pane = long_title_pane(false);
+        pane.chat_route = "Codex account / gpt-5.3-codex".into();
+        let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(width, 600.0)).build_ui_state(
+            |ui, pane| {
+                let _ = show(ui, Id::unique("stable-model"), pane, str::to_owned);
+            },
+            pane,
+        );
+        harness.run_steps(4);
+        let expected = harness.get_by_label("Choose model").rect();
+        for frame in 0..12 {
+            harness.run_steps(1);
+            let actual = harness.get_by_label("Choose model").rect();
+            assert_eq!(actual, expected, "width {width}, frame {frame}");
+        }
+    }
+}

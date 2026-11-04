@@ -179,7 +179,9 @@ pub fn serve(mut input: impl Read + Send + 'static, mut output: impl Write) -> R
                         && !session.state().settings.has_unsaved_edits()
                         && last_reload.elapsed().as_secs() >= 1
                     {
-                        let _ = session.action(Action::ReloadSettings);
+                        if let Err(error) = session.refresh_settings() {
+                            session.state().error = Some(error);
+                        }
                         last_reload = Instant::now();
                     }
                     let translations = &config.translations;

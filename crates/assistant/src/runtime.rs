@@ -47,6 +47,9 @@ impl Session {
     pub fn action(&mut self, action: Action) -> Result<(), String> {
         native::action(self, action)
     }
+    pub(crate) fn refresh_settings(&mut self) -> Result<(), String> {
+        native::refresh_settings(self)
+    }
     pub fn poll(&mut self) {
         if let Some(ctx) = self.ctx.clone() {
             native::ensure_loaded(self);

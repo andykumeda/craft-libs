@@ -109,3 +109,20 @@ installed-app interaction and signed update activation remain unperformed for th
 Older helpers that omit the optional settings-view field retain their existing update toolbar, so a new host can still update an old helper.
 
 Compatibility follow-up: 26 helper unit tests and 4 process tests passed; strict all-target lint passed. The missing-field regression fails with the former false default.
+
+## Idle model picker refresh — 2026-11-04
+
+Owner: shared assistant. State: **Verified** (source). The idle server previously started a full settings
+reload every second, disabling the model picker until each read completed. It now compares the
+shared connection/runtime file revisions before starting that reload. Actual file changes and
+explicit Reload settings retain validation, error reporting and shared model synchronization.
+The regression covers repeated unchanged ticks and a synthetic changed runtime configuration;
+a separate composer check covers stable geometry across narrow widths. No installed helper
+replacement is claimed by this source entry.
+
+Verification: 471 shared UI tests and 7 doctests passed (2 visual/manual tests ignored),
+28 helper runtime tests and 4 process tests passed. The unchanged-refresh regression failed
+when its revision guard was removed, then passed after restoration. The isolated changed-file
+test applies a new shared RuntimeConfig and verifies the next unchanged refresh stays idle.
+Scoped all-target Clippy with warnings denied, formatting and whitespace checks passed.
+Native installed interaction remains a separate delivery check.

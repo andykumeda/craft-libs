@@ -50,3 +50,7 @@ Older helpers that omit the optional settings-view field retain their existing u
 The compact-layout local rollout uses helper 0.1.1, retaining protocol/settings/history format1 and the immutable installed 0.1.0 for rollback.
 
 The navigation refinement ships as helper0.1.2 without another host rebuild (protocol/settings/history remain1). Version, update button, result/status copy and install action are one settings-only group in compatible hosts; regression coverage checks all three labels together.
+
+Idle panels check the shared connection/runtime files for changes before reloading them.
+Unchanged settings keep the composer model picker enabled; explicit Reload settings and
+actual shared-file changes retain the existing validated reload path.

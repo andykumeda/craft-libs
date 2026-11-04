@@ -30,6 +30,7 @@ use super::host::{McpHost, Pending};
 #[derive(Default)]
 pub(super) struct Native {
     initialized: bool,
+    settings_revision: Vec<Option<(u64, std::time::SystemTime)>>,
     root: Option<PathBuf>,
     codex_template: Option<(PathBuf, Arc<CodexProvider>)>,
     conversation: Option<Conversation>,
@@ -82,7 +83,7 @@ enum WorkerEvent {
 }
 
 enum Update {
-    Loaded { root: PathBuf, store: StoreFile, config: RuntimeConfig, history: Vec<ChatSummary> },
+    Loaded { root: PathBuf, store: StoreFile, config: RuntimeConfig, history: Vec<ChatSummary>, revision: Vec<Option<(u64, std::time::SystemTime)>> },
     Store(StoreFile),
     ConnectionSaved { change: ConnectionChange, id: ConnectionId },
     ConnectionDeleted { change: ConnectionChange, id: ConnectionId },
@@ -139,14 +140,35 @@ pub(super) fn ensure_loaded(app: &mut Session) {
     if let Err(error) = job(app, move |sender, _| {
         let result = (|| {
             let root = SharedStore::default_root().map_err(fail)?;
+            let revision = settings_revision(&root)?;
             let store = SharedStore::new(root.clone());
             let history = summaries(&history(&store, &app_id)?)?;
-            Ok(Update::Loaded { root, store: store.load().map_err(fail)?, config: store.config().map_err(fail)?, history })
+            Ok(Update::Loaded { root, store: store.load().map_err(fail)?, config: store.config().map_err(fail)?, history, revision })
         })();
         let _ = sender.send(result);
     }) {
         app.assistant.widget.error = Some(error);
     }
+}
+
+fn settings_revision(root: &std::path::Path) -> Result<Vec<Option<(u64, std::time::SystemTime)>>, String> {
+    ["connections.json", "runtime.json"]
+        .into_iter()
+        .map(|name| match std::fs::metadata(root.join(name)) {
+            Ok(metadata) => Ok(Some((metadata.len(), metadata.modified().map_err(fail)?))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(fail(error)),
+        })
+        .collect()
+}
+
+pub(super) fn refresh_settings(app: &mut Session) -> Result<(), String> {
+    let Some(root) = &app.assistant.native.root else { return Ok(()) };
+    // Unchanged idle settings must not disable the model picker on every polling tick.
+    if settings_revision(root)? == app.assistant.native.settings_revision {
+        return Ok(());
+    }
+    action(app, Action::ReloadSettings)
 }
 
 struct Providers {
@@ -742,7 +764,8 @@ fn poll_job(app: &mut Session, ctx: &egui::Context) {
     loop {
         match receiver.try_recv() {
             Ok(Ok(update)) => match update {
-                Update::Loaded { root, store, config, history } => {
+                Update::Loaded { root, store, config, history, revision } => {
+                    app.assistant.native.settings_revision = revision;
                     if app.assistant.native.root.as_ref() != Some(&root) {
                         app.assistant.native.codex_template = None;
                     }
@@ -813,5 +836,70 @@ fn poll_job(app: &mut Session, ctx: &egui::Context) {
                 break;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod refresh_tests {
+    use super::*;
+
+    #[test]
+    fn unchanged_settings_do_not_start_a_busy_reload() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_owned();
+        let mut app = Session::new(AppId::new("refresh-test").unwrap(), egui::Context::default());
+        app.assistant.native.initialized = true;
+        app.assistant.native.root = Some(root.clone());
+        app.assistant.native.settings_revision = settings_revision(&root).unwrap();
+        for _ in 0..3 {
+            refresh_settings(&mut app).unwrap();
+            assert!(!app.assistant.widget.settings.busy);
+            assert!(app.assistant.native.job.is_none());
+        }
+        let before = settings_revision(&root).unwrap();
+        std::fs::write(root.join("connections.json"), "{}").unwrap();
+        assert_ne!(settings_revision(&root).unwrap(), before);
+        let before = settings_revision(&root).unwrap();
+        std::fs::write(root.join("runtime.json"), "{}").unwrap();
+        assert_ne!(settings_revision(&root).unwrap(), before);
+    }
+
+    #[test]
+    fn changed_settings_reload_and_apply_shared_configuration() {
+        const CHILD: &str = "CRAFT_REFRESH_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let temp = tempfile::tempdir().unwrap();
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "runtime::native::refresh_tests::changed_settings_reload_and_apply_shared_configuration", "--nocapture"])
+                .env(CHILD, "1")
+                .env("CRAFT_AI_CONFIG_DIR", temp.path())
+                .status()
+                .unwrap();
+            assert!(status.success());
+            return;
+        }
+        let ctx = egui::Context::default();
+        let mut app = Session::new(AppId::new("refresh-test").unwrap(), ctx);
+        let wait = |app: &mut Session| {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while app.assistant.native.job.is_some() {
+                assert!(std::time::Instant::now() < deadline);
+                app.poll();
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert!(app.assistant.widget.error.is_none(), "{:?}", app.assistant.widget.error);
+        };
+        app.poll();
+        wait(&mut app);
+        let store = SharedStore::new(SharedStore::default_root().unwrap());
+        let config = RuntimeConfig { request_timeout_secs: 181, ..RuntimeConfig::default() };
+        store.update_config(&config).unwrap();
+        refresh_settings(&mut app).unwrap();
+        assert!(app.assistant.widget.settings.busy);
+        wait(&mut app);
+        assert_eq!(app.assistant.native.effective_config, Some(config));
+        refresh_settings(&mut app).unwrap();
+        assert!(!app.assistant.widget.settings.busy);
+        assert!(app.assistant.native.job.is_none());
     }
 }
