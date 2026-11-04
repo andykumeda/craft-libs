@@ -123,26 +123,36 @@ pub fn show(ui: &mut Ui, id: Id, state: &mut State, translate: impl Fn(&str) -> 
 fn header(ui: &mut Ui, state: &mut State, tr: &impl Fn(&str) -> String, actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
         ui.add_enabled_ui(!state.busy, |ui| {
-            ui.menu_button(tr("Chats"), |ui| {
-                if ui.button(tr("New chat")).clicked() {
-                    actions.push(Action::NewChat);
-                    ui.close();
-                }
-                for chat in &state.history {
-                    let label = if chat.interrupted { format!("{} · {}", chat.title, tr("Interrupted")) } else { chat.title.clone() };
-                    if ui.selectable_label(Some(&chat.id) == state.active_chat.as_ref(), label).clicked() {
-                        actions.push(Action::OpenChat(chat.id.clone()));
-                        ui.close();
+            ui.set_max_width((ui.available_width() - 40.0).max(1.0));
+            if ui.button(tr("New chat")).on_hover_text(tr("Start a new conversation")).clicked() {
+                actions.push(Action::NewChat);
+            }
+            let history = crate::ComboBox::from_id_salt("assistant_history")
+                .selected_text(tr("Chat history"))
+                .width(108.0)
+                .truncate()
+                .show_ui(ui, |ui| {
+                    ui.set_max_width(260.0);
+                    if state.history.is_empty() {
+                        ui.label(tr("No saved chats"));
                     }
-                }
-                if let Some(id) = &state.active_chat {
-                    ui.separator();
-                    if ui.button(tr("Delete chat")).clicked() {
-                        actions.push(Action::DeleteChat(id.clone()));
-                        ui.close();
+                    for chat in &state.history {
+                        let label = if chat.interrupted { format!("{} · {}", chat.title, tr("Interrupted")) } else { chat.title.clone() };
+                        if ui.selectable_label(Some(&chat.id) == state.active_chat.as_ref(), label).clicked() {
+                            actions.push(Action::OpenChat(chat.id.clone()));
+                            ui.close();
+                        }
                     }
-                }
-            });
+                    if let Some(id) = &state.active_chat {
+                        ui.separator();
+                        if ui.button(tr("Delete chat")).clicked() {
+                            actions.push(Action::DeleteChat(id.clone()));
+                            ui.close();
+                        }
+                    }
+                })
+                .response;
+            history.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, ui.is_enabled(), tr("Chat history")));
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let response = ui.add(egui::Button::new(" ").min_size(egui::vec2(32.0, 32.0)).selected(state.settings_open));

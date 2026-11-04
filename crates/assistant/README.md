@@ -33,7 +33,7 @@ See the [implementation ledger](../../docs/independent-assistant.md). Synthetic 
 
 ## Chat layout
 
-The header contains a Chats menu (new, saved and delete actions) and a settings gear.
+The header has an explicit New chat action, a Chat history dropdown for saved conversations and a settings gear. Delete remains inside history.
 The composer has a `+` menu for file selection or an explicit output path, a compact model
 picker and Send/Stop. Attached paths remain visible and removable. Model choices use existing
 streaming/tool capability validation and persist only after the host acknowledges the save;
@@ -48,3 +48,5 @@ previous always-visible update toolbar. No protocol version or settings schema c
 Older helpers that omit the optional settings-view field retain their existing update toolbar, so a new host can still update an old helper.
 
 The compact-layout local rollout uses helper 0.1.1, retaining protocol/settings/history format1 and the immutable installed 0.1.0 for rollback.
+
+The navigation refinement ships as helper0.1.2 without another host rebuild (protocol/settings/history remain1). Version, update button, result/status copy and install action are one settings-only group in compatible hosts; regression coverage checks all three labels together.

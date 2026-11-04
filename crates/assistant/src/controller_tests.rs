@@ -402,11 +402,15 @@ fn installed_component_updates_appear_only_in_settings() {
     await_outcome(&mut controller);
     assert!(controller.ready());
     controller.config = Some(configured(temporary.path().join("installed")));
+    controller.status.version = "0.1.1".into();
+    controller.update_notice = Some("The shared assistant is up to date.".into());
     for open in [false, true, false] {
         controller.status.settings_open = open;
         let mut output = context.run_ui(egui::RawInput::default(), |ui| controller.show(ui));
         let accessibility = output.platform_output.accesskit_update.as_ref().unwrap();
-        assert_eq!(accessibility.nodes.iter().any(|(_, node)| node.label() == Some("Check for updates")), open);
+        for label in ["Check for updates", "Shared assistant 0.1.1", "The shared assistant is up to date."] {
+            assert_eq!(accessibility.nodes.iter().any(|(_, node)| node.label() == Some(label) || node.value() == Some(label)), open, "{label}");
+        }
         output.textures_delta.clear();
     }
 }

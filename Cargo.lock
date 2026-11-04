@@ -835,7 +835,7 @@ dependencies = [
 
 [[package]]
 name = "craft-assistant"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "craft-ai-core",

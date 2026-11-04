@@ -245,7 +245,7 @@ fn long_history_titles_keep_the_header_and_composer_inside_the_pane() {
                 );
                 // Busy status includes a spinner, so it intentionally never settles.
                 harness.run_steps(3);
-                let chats = harness.get_by_label("Chats").rect();
+                let chats = harness.get_by_label("Chat history").rect();
                 let settings = harness.get_by_label("Settings").rect();
                 let model = harness.get_by_label("Choose model").rect();
                 let composer = harness.get_by_role(egui::Role::MultilineTextInput).rect();
@@ -400,4 +400,33 @@ fn composer_model_choice_requests_validated_app_override_without_changing_saved_
     }) if model == "local-tools"));
     assert_eq!(harness.state().pane.settings.store, saved);
     assert_eq!(harness.state().pane.draft, "Keep draft");
+}
+
+#[test]
+fn new_chat_and_saved_history_have_explicit_separate_controls() {
+    use egui_kittest::kittest::Queryable as _;
+    struct View {
+        pane: State,
+        actions: Vec<Action>,
+    }
+    let pane = State {
+        available: true,
+        draft: "Keep my draft".into(),
+        history: vec![ChatSummary { id: "saved".into(), title: "Saved conversation".into(), interrupted: false }],
+        ..Default::default()
+    };
+    let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(280.0, 600.0)).build_ui_state(
+        |ui, view: &mut View| view.actions.extend(show(ui, Id::unique("clear-chat-navigation"), &mut view.pane, str::to_owned)),
+        View { pane, actions: Vec::new() },
+    );
+    assert!(harness.query_by_label("Chats").is_none());
+    harness.get_by_label("New chat").click();
+    harness.run();
+    assert!(matches!(harness.state().actions.last(), Some(Action::NewChat)));
+    assert_eq!(harness.state().pane.draft, "Keep my draft");
+    harness.get_by_label("Chat history").click();
+    harness.run();
+    harness.get_by_label("Saved conversation").click();
+    harness.run();
+    assert!(matches!(harness.state().actions.last(), Some(Action::OpenChat(id)) if id=="saved"));
 }
