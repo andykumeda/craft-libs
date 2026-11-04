@@ -138,3 +138,5 @@ Verification: removing history-directory observation made the create/read-back a
 restoring it passed. The 68 native-provider/HTTP/runtime checks, 28 helper tests and 4 helper
 process tests passed again, with strict scoped all-target Clippy, formatting and whitespace
 checks green. Installed helper interaction is recorded by the delivery owner separately.
+
+Delivery checkpoint: helper 0.1.3 was signed and installed on the MacBook on 2026-11-04; installed native idle-control checks passed. See [per-device delivery evidence and limitations](two-mac-rollout.md#model-selector-and-macbook-codex-repair--2026-11-04). Mini activation remains unchanged.

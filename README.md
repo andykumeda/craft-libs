@@ -25,7 +25,7 @@ craft-<name> = { git = "https://github.com/storytold/craft-libs", rev = "<commit
 
 ## Libraries
 
-- [`craft-assistant`](crates/assistant/README.md): independently built native assistant service and thin app host controller; global model/authentication, app-separated history and app-owned document permissions. macOS release installation requires configured signed packages; native acceptance remains pending.
+- [`craft-assistant`](crates/assistant/README.md): independently built native assistant service and thin app host controller; global model/authentication, app-separated history and app-owned document permissions. macOS installation requires configured signed packages; see the [rollout ledger](docs/two-mac-rollout.md) for per-device native verification and remaining live-provider checks.
   The shared chat uses a settings gear, composer file/model menus, and update controls inside settings; see its README for rebuild boundaries.
 - [`craft-assistant-bridge`](crates/assistant-bridge/README.md): bounded private-pipe protocol for embedded egui assistant rendering, input, IME and accessibility.
 - [`craft-assistant-install`](crates/assistant-install/README.md): signed immutable assistant bundles, locked installation, compatible atomic activation and explicit rollback.
