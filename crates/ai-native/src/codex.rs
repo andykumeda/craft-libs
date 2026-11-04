@@ -75,7 +75,27 @@ pub struct CodexProvider {
 }
 
 fn configured_binary(value: Option<std::ffi::OsString>) -> PathBuf {
-    value.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("codex"))
+    value.map(PathBuf::from).unwrap_or_else(|| {
+        let paths = std::env::var_os("PATH").map(|paths| std::env::split_paths(&paths).map(|dir| dir.join("codex")).collect()).unwrap_or_default();
+        let mut applications = Vec::new();
+        if cfg!(target_os = "macos") {
+            applications.push(PathBuf::from("/Applications"));
+            if let Some(home) = dirs::home_dir() {
+                applications.push(home.join("Applications"));
+            }
+        }
+        default_binary(paths, applications)
+    })
+}
+
+fn default_binary(paths: Vec<PathBuf>, applications: Vec<PathBuf>) -> PathBuf {
+    paths
+        .into_iter()
+        .chain(applications.into_iter().flat_map(|root| {
+            [root.join("Codex.app/Contents/Resources/codex"), root.join("ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex")]
+        }))
+        .find(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from("codex"))
 }
 
 fn executable(path: &Path) -> Result<PathBuf, AiError> {
@@ -1199,10 +1219,43 @@ mod tests {
 
     #[test]
     fn binary_override_is_exact_and_empty_never_falls_back() {
-        assert_eq!(configured_binary(None), PathBuf::from("codex"));
+        assert_eq!(default_binary(Vec::new(), Vec::new()), PathBuf::from("codex"));
         assert_eq!(configured_binary(Some("/custom/runtime".into())), PathBuf::from("/custom/runtime"));
         assert!(executable(&configured_binary(Some("".into()))).is_err());
         assert!(executable(Path::new("/missing/craft-codex-test-binary")).is_err());
+    }
+
+    #[test]
+    fn default_binary_prefers_path_then_installed_macos_apps() {
+        let root =
+            std::env::temp_dir().join(format!("craft-codex-discovery-{}-{}", std::process::id(), NEXT_PROCESS.fetch_add(1, Ordering::Relaxed)));
+        let cli = root.join("bin/codex");
+        let bundle = root.join("Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex");
+        std::fs::create_dir_all(bundle.parent().unwrap()).unwrap();
+        std::fs::write(&bundle, "synthetic Codex binary").unwrap();
+        let applications = vec![root.join("Applications")];
+        assert_eq!(default_binary(vec![cli.clone()], applications.clone()), bundle);
+        std::fs::create_dir_all(cli.parent().unwrap()).unwrap();
+        std::fs::write(&cli, "synthetic PATH binary").unwrap();
+        assert_eq!(default_binary(vec![cli.clone()], applications), cli);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    #[ignore = "manual installed Codex bundle version smoke; no authentication or inference"]
+    fn installed_codex_bundle_starts_without_shell_search_paths() {
+        let mut applications = vec![PathBuf::from("/Applications")];
+        if let Some(home) = dirs::home_dir() {
+            applications.push(home.join("Applications"));
+        }
+        let binary = default_binary(Vec::new(), applications);
+        assert!(binary.is_absolute(), "install Codex.app or ChatGPT.app before running this smoke check");
+        let output = Command::new(executable(&binary).unwrap()).arg("--version").env("PATH", "/usr/bin:/bin").output().unwrap();
+        assert!(output.status.success());
+        let version = String::from_utf8(output.stdout).unwrap();
+        assert!(version.starts_with("codex-cli "), "{version}");
+        eprintln!("{}: {}", binary.display(), version.trim());
     }
 
     #[test]

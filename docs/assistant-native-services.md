@@ -40,7 +40,9 @@ without another provider call, leaving a reused provider's parked workers alive 
 WordCraft already constructs and drops its provider inside each turn worker.
 
 `CodexOptions::in_shared_root` reads `CRAFT_CODEX_BINARY` when set; otherwise it resolves `codex`
-from `PATH`. Set an absolute path for installations outside the application's `PATH`. An empty or
+from `PATH`. On macOS, when PATH has no Codex executable, it checks installed Codex.app and
+ChatGPT.app CLI bundle locations in `/Applications` and `~/Applications`. An explicit override
+never uses that discovery fallback. Set an absolute override for other installation locations. An empty or
 missing selected executable fails explicitly without substituting another runtime. `CodexOptions`
 also permits apps to supply an executable path directly and an absolute, dedicated home. It refuses
 the user's existing default or active Codex home. `CODEX_HOME`, `HOME`, and `USERPROFILE` all
@@ -230,3 +232,23 @@ account check despite cached runtime proof. A live synthetic Codex transport pro
 document-edit benchmark or evidence of panel/external-client performance parity. Consumer
 edit/save/reopen/Undo, same-fixture model comparisons and packaged delivery remain separate
 gates recorded in the WordCraft consumer ledger.
+
+
+## GUI-launched Codex discovery — 2026-11-04
+
+Helper0.1.3 includes PATH-first installed-bundle discovery on macOS. The change selects the
+same Codex CLI runtime; it does not select another provider, inherit its desktop account, copy
+history/configuration, or change Craft's isolated Codex home. The existing compatibility and
+network-containment checks still run before document content is sent.
+
+Deterministic candidate tests cover absent PATH candidates, installed-bundle discovery, PATH
+precedence and exact overrides. A separate explicitly run installed-bundle smoke starts only
+`--version` with `/usr/bin:/bin` as the child PATH; authentication and inference are separate checks.
+
+Source verification: 38 native-provider unit tests, 6 HTTP tests and 24 synthetic runtime
+integration tests passed; 6 manual/live checks remained ignored. All 28 helper runtime tests
+and 4 process tests passed. Scoped all-target Clippy with warnings denied, formatting and
+whitespace checks passed. Removing installed-bundle discovery makes its deterministic test
+fail; restoring it passes. The explicit local installed-bundle smoke resolved the ChatGPT CLI
+and printed `codex-cli 0.166.0-alpha.6`. This proves process discovery/startup only; authenticated
+provider compatibility, containment and inference remain separate from this version check.
