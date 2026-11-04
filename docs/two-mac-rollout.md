@@ -144,3 +144,13 @@ turns retain their current executable until the controller's safe restart bounda
 active helper remains0.1.2. Toolbar source changes are not installed on either device.
 Live Codex authentication/inference, native IME/clipboard/VoiceOver and public release remain
 unperformed. Metadata-preserving external file edits require explicit Reload settings.
+
+
+### Hide tool activity on both Macs — 2026-11-04
+
+| Device | Owner | Target | State | Acceptance |
+| --- | --- | --- | --- | --- |
+| AKsMini | Primary | helper 0.1.4 | In progress | Signed install, preserved previous helper, host handshakes and native display check |
+| AKs-MBPro.local | Primary | helper 0.1.4 | In progress | Same package, signed install, preserved previous helper, host handshakes and native display check |
+
+The assistant retains tool calls and results in conversation state but hides their transcript and activity rows. Existing app bundles, configurations and chats remain in place.
