@@ -51,6 +51,6 @@ The compact-layout local rollout uses helper 0.1.1, retaining protocol/settings/
 
 The navigation refinement ships as helper0.1.2 without another host rebuild (protocol/settings/history remain1). Version, update button, result/status copy and install action are one settings-only group in compatible hosts; regression coverage checks all three labels together.
 
-Idle panels check the shared connection/runtime files for changes before reloading them.
+Idle panels check the shared connection/runtime files and app-specific history directory for changes before reloading them.
 Unchanged settings keep the composer model picker enabled; explicit Reload settings and
 actual shared-file changes retain the existing validated reload path.

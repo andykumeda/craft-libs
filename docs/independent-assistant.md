@@ -126,3 +126,15 @@ when its revision guard was removed, then passed after restoration. The isolated
 test applies a new shared RuntimeConfig and verifies the next unchanged refresh stays idle.
 Scoped all-target Clippy with warnings denied, formatting and whitespace checks passed.
 Native installed interaction remains a separate delivery check.
+
+History-preservation follow-up: the revision check also observes the app-specific history
+directory. Normal create/save/delete operations use atomic replacement or removal, updating
+that directory's metadata; another process's conversation changes therefore still refresh the
+chat list. The isolated regression creates a conversation, changes its title, deletes it, and
+checks each refreshed list. External edits that deliberately preserve tracked metadata require
+explicit Reload settings; the source records this limit beside the revision check.
+
+Verification: removing history-directory observation made the create/read-back assertion fail;
+restoring it passed. The 68 native-provider/HTTP/runtime checks, 28 helper tests and 4 helper
+process tests passed again, with strict scoped all-target Clippy, formatting and whitespace
+checks green. Installed helper interaction is recorded by the delivery owner separately.

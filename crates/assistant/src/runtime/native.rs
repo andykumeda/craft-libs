@@ -140,7 +140,7 @@ pub(super) fn ensure_loaded(app: &mut Session) {
     if let Err(error) = job(app, move |sender, _| {
         let result = (|| {
             let root = SharedStore::default_root().map_err(fail)?;
-            let revision = settings_revision(&root)?;
+            let revision = settings_revision(&root, &app_id)?;
             let store = SharedStore::new(root.clone());
             let history = summaries(&history(&store, &app_id)?)?;
             Ok(Update::Loaded { root, store: store.load().map_err(fail)?, config: store.config().map_err(fail)?, history, revision })
@@ -151,10 +151,12 @@ pub(super) fn ensure_loaded(app: &mut Session) {
     }
 }
 
-fn settings_revision(root: &std::path::Path) -> Result<Vec<Option<(u64, std::time::SystemTime)>>, String> {
-    ["connections.json", "runtime.json"]
+fn settings_revision(root: &std::path::Path, app: &AppId) -> Result<Vec<Option<(u64, std::time::SystemTime)>>, String> {
+    let history = HistoryStore::new(root, app).map_err(fail)?;
+    // shortcut: metadata-preserving external edits need Reload settings; use content fingerprints if that workflow is supported.
+    [root.join("connections.json"), root.join("runtime.json"), history.root().to_owned()]
         .into_iter()
-        .map(|name| match std::fs::metadata(root.join(name)) {
+        .map(|path| match std::fs::metadata(path) {
             Ok(metadata) => Ok(Some((metadata.len(), metadata.modified().map_err(fail)?))),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(fail(error)),
@@ -165,7 +167,7 @@ fn settings_revision(root: &std::path::Path) -> Result<Vec<Option<(u64, std::tim
 pub(super) fn refresh_settings(app: &mut Session) -> Result<(), String> {
     let Some(root) = &app.assistant.native.root else { return Ok(()) };
     // Unchanged idle settings must not disable the model picker on every polling tick.
-    if settings_revision(root)? == app.assistant.native.settings_revision {
+    if settings_revision(root, &app.app_id)? == app.assistant.native.settings_revision {
         return Ok(());
     }
     action(app, Action::ReloadSettings)
@@ -850,18 +852,18 @@ mod refresh_tests {
         let mut app = Session::new(AppId::new("refresh-test").unwrap(), egui::Context::default());
         app.assistant.native.initialized = true;
         app.assistant.native.root = Some(root.clone());
-        app.assistant.native.settings_revision = settings_revision(&root).unwrap();
+        app.assistant.native.settings_revision = settings_revision(&root, &app.app_id).unwrap();
         for _ in 0..3 {
             refresh_settings(&mut app).unwrap();
             assert!(!app.assistant.widget.settings.busy);
             assert!(app.assistant.native.job.is_none());
         }
-        let before = settings_revision(&root).unwrap();
+        let before = settings_revision(&root, &app.app_id).unwrap();
         std::fs::write(root.join("connections.json"), "{}").unwrap();
-        assert_ne!(settings_revision(&root).unwrap(), before);
-        let before = settings_revision(&root).unwrap();
+        assert_ne!(settings_revision(&root, &app.app_id).unwrap(), before);
+        let before = settings_revision(&root, &app.app_id).unwrap();
         std::fs::write(root.join("runtime.json"), "{}").unwrap();
-        assert_ne!(settings_revision(&root).unwrap(), before);
+        assert_ne!(settings_revision(&root, &app.app_id).unwrap(), before);
     }
 
     #[test]
@@ -900,6 +902,22 @@ mod refresh_tests {
         assert_eq!(app.assistant.native.effective_config, Some(config));
         refresh_settings(&mut app).unwrap();
         assert!(!app.assistant.widget.settings.busy);
+        assert!(app.assistant.native.job.is_none());
+        let history = history(&store, &app.app_id).unwrap();
+        let mut conversation = history.create("Created in another process").unwrap();
+        refresh_settings(&mut app).unwrap();
+        wait(&mut app);
+        assert!(app.assistant.widget.history.iter().any(|entry| entry.id == conversation.id));
+        conversation.title = "Saved in another process".into();
+        history.save(&conversation).unwrap();
+        refresh_settings(&mut app).unwrap();
+        wait(&mut app);
+        assert!(app.assistant.widget.history.iter().any(|entry| entry.id == conversation.id && entry.title == conversation.title));
+        history.delete(&conversation.id).unwrap();
+        refresh_settings(&mut app).unwrap();
+        wait(&mut app);
+        assert!(!app.assistant.widget.history.iter().any(|entry| entry.id == conversation.id));
+        refresh_settings(&mut app).unwrap();
         assert!(app.assistant.native.job.is_none());
     }
 }
