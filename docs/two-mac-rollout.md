@@ -150,7 +150,29 @@ unperformed. Metadata-preserving external file edits require explicit Reload set
 
 | Device | Owner | Target | State | Acceptance |
 | --- | --- | --- | --- | --- |
-| AKsMini | Primary | helper 0.1.4 | In progress | Signed install, preserved previous helper, host handshakes and native display check |
-| AKs-MBPro.local | Primary | helper 0.1.4 | In progress | Same package, signed install, preserved previous helper, host handshakes and native display check |
+| AKsMini | Primary | helper 0.1.4 | Deployed | Signed install, previous 0.1.2 retained; three handshakes and synthetic Word model/edit/Undo/save/reopen passed |
+| AKs-MBPro.local | Primary | helper 0.1.4 | Deployed | Same signed package, previous 0.1.3 retained; three handshakes and synthetic Word model/edit/Undo/save/reopen passed |
 
 The assistant retains tool calls and results in conversation state but hides their transcript and activity rows. Existing app bundles, configurations and chats remain in place.
+
+Delivery source `77bd2bde4216085232564a662258d4d85b4bb934` includes display fix `b0342c0`.
+Package SHA-256 `bcd807157d9362d3b3f83f2601d9e8419462b24537bfe2add4ab67b5d1df5cdf`;
+executable SHA-256 `7303f421941221f214d15299d519ee51bb42b856bd5095f48ca3dfc47498a488`.
+Certificate/identifier, package checksums, three host handshakes, unchanged configuration and
+app binary hashes, and retained previous versions passed independently on both devices.
+
+Installed WordCraft synthetic acceptance used the configured Codex account model
+`gpt-6.1-terra`: the requested replacement was visible and Undo, Redo, save and reopen all
+passed on the Mini (15.11 seconds) and MacBook (13.18 seconds). The model followed the
+instruction not to save; the harness then saved for verification. The two rendered conversations
+were inspected and show user/assistant text without tool call/result/activity rows. Tests used
+disposable documents and profiles and the existing authenticated account; no credentials or
+personal conversations were copied. Existing app windows were not signalled. Test-owned
+windows quit and listeners were released. This cloud model can receive document task content.
+
+Mini receipt `/var/folders/cg/796c5bys74db15ww0b_qvw8c0000gn/T/wordcraft-installed-smoke-mgs5k27t/report.json`;
+MacBook receipt `/var/folders/z6/7ct4dgns2236tw0d27zdb9s40000gn/T/wordcraft-installed-smoke-ox2fqt4c/report.json`.
+Package and copied MacBook receipts: `/private/tmp/craft-assistant-014-20261104/`.
+Close and reopen Assistant in an existing window to adopt the new helper; active turns retain
+their current helper until the safe restart boundary. The app-toolbar source changes remain
+uninstalled. Native VoiceOver, IME and clipboard checks and public release were not performed.
