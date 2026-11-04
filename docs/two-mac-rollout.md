@@ -54,14 +54,14 @@ PDFCraft installed standard and preview smoke passed on both Macs with isolated 
 
 ## Compact-layout update — 2026-11-03
 
-Scope: shared assistant 0.1.1 and compatible PDFCraft/WordCraft/GridCraft hosts, standard and existing preview copies, on verified arm64 AKsMini and AKs-MBPro.local. Preserve settings/chats and existing signed trust; retain immutable helper 0.1.0 and app rollback bundles. No public release.
+Scope: shared assistant 0.1.2 and compatible PDFCraft/WordCraft/GridCraft hosts, standard and existing preview copies, on verified arm64 AKsMini and AKs-MBPro.local. Preserve settings/chats and existing signed trust; retain immutable helper 0.1.0 and app rollback bundles. No public release.
 
 | Device | Component / owner | Target | State | Acceptance / evidence | Remaining activation |
 | --- | --- | --- | --- | --- | --- |
-| AKsMini | Shared helper / primary | 0.1.1 | Deployed | Certificate-pinned install, three handshakes, unchanged-host PDF/Word/Grid native panels + synthetic MCP passed; 0.1.0 retained | Complete |
-| AKs-MBPro.local | Shared helper / primary | 0.1.1 | Deployed | Same signed archive/executable, three handshakes and unchanged-host PDF/Word/Grid native panel + synthetic MCP checks passed | Complete |
-| AKsMini | PDFCraft / primary | Compact host | In progress | Signed standard+preview, synthetic panel/settings/update/file/model controls | Build/package/install |
-| AKs-MBPro.local | PDFCraft / primary | Compact host | In progress | Same signed bundles, independent native smoke | Build/package/install |
+| AKsMini | Shared helper / primary | 0.1.2 | Deployed | Certificate-pinned install, three handshakes, unchanged-host PDF/Word/Grid native panels + synthetic MCP passed; 0.1.0 retained | Complete |
+| AKs-MBPro.local | Shared helper / primary | 0.1.2 | Deployed | Same signed archive/executable, three handshakes and unchanged-host PDF/Word/Grid native panel + synthetic MCP checks passed | Complete |
+| AKsMini | PDFCraft / primary | 71cc43cc / helper0.1.2 | Deployed | Signed standard+preview installed; native panel/settings/update/file/model controls and183-tool synthetic MCP passed | Complete |
+| AKs-MBPro.local | PDFCraft / primary | 71cc43cc / helper0.1.2 | Deployed | Same signed bundles; independent standard+preview native/MCP smoke passed | Complete |
 | AKsMini | WordCraft / Word workstream | Compact host | In progress | Source gates, signed standard+preview, native panel and MCP smoke | Prepare candidates |
 | AKs-MBPro.local | WordCraft / Word workstream | Compact host | In progress | Same signed bundles, independent native smoke | Prepare candidates |
 | AKsMini | GridCraft / Grid workstream | e8f93495 / helper0.1.1 | In progress | UI326 + MCP25, strict scoped lint/assets/layers/WASM passed; signed standard+preview staged and verified | Exact CI, then install/native |
@@ -77,4 +77,8 @@ MacBook helper-only native acceptance also passed: PDF standard/preview typing, 
 
 The screenshot came from an old host that still renders the version/check/status toolbar in chat. The rebuilt host83 controller already groups the version, check button, update status/notice and install action under settings visibility. Regression coverage now asserts the version and status copy move with the button. Grid hosts are now atomically installed on both Macs (Mini standard+preview; MacBook standard) with previous bundles retained; final native qualification waits for the refined helper.
 
-Helper0.1.2 replaces the ambiguous Chats control with explicit New chat and a Chat history dropdown, retaining busy guards, saved selection/delete and draft-preserving actions. Fifteen focused UI checks (including visual exports),30 helper checks and strict scoped lint passed. Narrow280-point and light/dark previews were inspected. The existing83 host contract remains compatible; no host rebuild is required for this additional navigation revision. Build/sign/install of0.1.2 is in progress;0.1.1 remains the currently installed helper until those steps complete.
+Helper0.1.2 replaces the ambiguous Chats control with explicit New chat and a Chat history dropdown, retaining busy guards, saved selection/delete and draft-preserving actions. Fifteen focused UI checks (including visual exports),30 helper checks and strict scoped lint passed. Narrow280-point and light/dark previews were inspected. The existing83 host contract remains compatible; no host rebuild is required for this additional navigation revision. Helper0.1.2 is now built, locally signed and installed on both Macs;0.1.0 and0.1.1 remain available for rollback. All three app-ID handshakes passed independently on each device. Config files and app binaries stayed byte-identical through this helper-only activation.
+
+Helper0.1.2 source `3dda16ac779f0ffbfd91a4eefe720346aca006d2`: archive SHA-256 `7affceecf0497f1219d61f4cf69fc3d74d5427ab9a29f83ec46bd2c71d69abb1`; signed executable `88a56df8c4d7a91c4d43256aa98df197cdce47b90448cfe519a1aeadb9c63f9a`. Real installer receipts are in `/private/tmp/craft-compact-rollout-20261103/helper012/` on each device. Host builds retain the compatible83e61084 pin; this navigation revision needed no further host rebuild.
+
+PDFCraft71cc43cc standard and Preview installed on both Macs; native QA passed independently for both variants on each Mac, including New chat/Chat history, file/model menus, draft typing/clear, actual up-to-date notice inside Settings and hiding the button/version/notice when Settings closes.183 tools listed and8 synthetic MCP operations passed. All test-owned instances quit normally and released their listeners. Exact receipts are cited in PDFCraft's assistant implementation ledger. Local app backups are under `~/Applications/Craft Rollout Backups/2026-11-03-compact/`. No inference, personal histories or credentials were used.

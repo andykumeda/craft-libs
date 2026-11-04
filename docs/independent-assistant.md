@@ -14,7 +14,7 @@ The assistant remains embedded in PDFCraft, WordCraft and GridCraft. A shared ex
 | Word/Grid integration / primary | Same shared helper, isolated documents/history, existing automation preserved | Consumer assistant adapters | PDF embedding verification | Verified | Guarded Word 0.15.0 and Grid 0.16.0 installed on both Macs; isolated native helper and synthetic MCP smoke passed; see two-Mac rollout |
 | Component installation / installer agent | Verified immutable installs, compatible activation, locking and offline resolution | assistant-install | Protocol/schema versions | Verified | Locally certificate-pinned 0.1.0 installed on both Macs; real signature and private-pipe handshakes verified; public release remains separate |
 | App updates / updater agent | Configured compatible fork releases; no upstream fallback | update/custom and consumer updater modules | Signed compatibility metadata | Verified | Fork sources and local certificate pin configured on both Macs; update activation from published assets not demonstrated |
-| Delivery / primary | Assistant-only update changes all three panels with unchanged app binaries | Packaging, docs, focused commits | All previous work | Blocked | No published signed update assets; assistant-only update across all three unchanged app binaries and app update activation remain to be demonstrated |
+| Delivery / primary | Assistant-only update changes all three panels with unchanged app binaries | Packaging, docs, focused commits | All previous work | Verified | Locally signed helper-only update and independent PDF/Word/Grid native/MCP checks passed on both Macs with unchanged app hashes; public feed/notarized release and app-update activation remain deferred |
 
 ## Verification and limitations
 
