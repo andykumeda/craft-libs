@@ -223,3 +223,7 @@ actual installed Word model acceptance, followed by guarded global activation. M
 MacBook10.11s native Terra document edits passed visible-result/Undo/Redo/save/reopen checks;
 configuration/app hashes were preserved and previous0.1.4 retained. Version0.1.5's failed
 strict-config activation was rolled back first. See [two-Mac delivery evidence](two-mac-rollout.md#normal-codex-environment-workspace-safety-and-approvals--2026-11-04).
+
+The final DeckCraft integration opts into minimum helper0.1.6, the first candidate qualified
+against normal-profile live acceptance. Earlier0.1.5 minimum references above describe the
+API/font-policy source checkpoint; the generic gate accepts any host-supplied semantic minimum.

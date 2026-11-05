@@ -239,3 +239,8 @@ the controller's safe idle restart boundary after closing/reopening Assistant; a
 retain their current helper. Native VoiceOver/IME/clipboard and public release remain
 unperformed. This helper delivery does not install deferred app toolbar changes or assert
 full Codex desktop/history parity.
+
+The final DeckCraft host requires helper0.1.6 via the opt-in minimum-version API:0.1.5 met
+the font policy but failed normal-profile startup acceptance, so0.1.6 is the first qualified
+candidate. This records the host requirement, not a claim that DeckCraft was installed by
+this helper delivery. Generic API tests using a0.1.5 minimum remain valid version-gate tests.
