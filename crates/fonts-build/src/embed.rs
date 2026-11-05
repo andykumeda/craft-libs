@@ -26,6 +26,7 @@ type Filter = Box<dyn Fn(&ManifestEntry) -> bool>;
 #[derive(Default)]
 pub struct Embed {
     scripts: Option<Vec<String>>,
+    manifests: Vec<PathBuf>,
     filter: Option<Filter>,
     dir: Option<PathBuf>,
     required: Option<bool>,
@@ -70,6 +71,14 @@ impl Embed {
     /// [`Embed::scripts`] and [`Embed::filter`].
     pub fn documents(families: &[&str]) -> Self {
         Self { families: Some(families.iter().map(|f| (*f).to_owned()).collect()), ..Self::default() }
+    }
+
+    /// Also read this manifest relative to the checkout, applying the same selection and filter.
+    /// An explicitly selected manifest must exist; it follows the normal required/error policy.
+    /// Default consumers still read only `fonts/manifest.txt`.
+    pub fn additional_manifest(mut self, path: impl Into<PathBuf>) -> Self {
+        self.manifests.push(path.into());
+        self
     }
 
     /// Embed only faces with at least one of these script tags (see
@@ -236,10 +245,13 @@ impl Embed {
     /// The wanted manifest entries with their canonical file paths.
     fn select(&self, dir: &Path, cargo: &mut Vec<String>) -> Result<Vec<Face>, Error> {
         let manifest = dir.join("fonts/manifest.txt");
-        let text = std::fs::read_to_string(&manifest).map_err(|source| Error::Read { path: manifest.clone(), source })?;
-        // Cargo treats a missing watched file as changed, which would rerun the build every time.
-        cargo.push(format!("cargo::rerun-if-changed={}", manifest.display()));
-        let entries = parse_manifest(&text).map_err(|error| Error::Parse { manifest: manifest.clone(), error })?;
+        let mut entries = Vec::new();
+        for path in std::iter::once(manifest.clone()).chain(self.manifests.iter().map(|path| dir.join(path))) {
+            let text = std::fs::read_to_string(&path).map_err(|source| Error::Read { path: path.clone(), source })?;
+            // Only watch a manifest after reading it, so a missing file does not force rebuilds.
+            cargo.push(format!("cargo::rerun-if-changed={}", path.display()));
+            entries.extend(parse_manifest(&text).map_err(|error| Error::Parse { manifest: path, error })?);
+        }
         if let Some(families) = &self.families {
             let unknown: Vec<String> = families.iter().filter(|f| !entries.iter().any(|e| &e.family == *f)).cloned().collect();
             if !unknown.is_empty() {
@@ -365,8 +377,11 @@ impl Embed {
             return Vec::new();
         }
         let manifest = dir.join("fonts/manifest.txt");
-        // `select` read and parsed this manifest already.
-        let entries = std::fs::read_to_string(&manifest).ok().and_then(|text| parse_manifest(&text).ok()).unwrap_or_default();
+        // `select` read and parsed these manifests already.
+        let entries: Vec<_> = std::iter::once(manifest.clone())
+            .chain(self.manifests.iter().map(|path| dir.join(path)))
+            .flat_map(|path| std::fs::read_to_string(path).ok().and_then(|text| parse_manifest(&text).ok()).unwrap_or_default())
+            .collect();
         for family in self.elsewhere.iter().filter(|f| !entries.iter().any(|e| &e.family == *f)) {
             cargo.push(format!("cargo::warning=craft-fonts: embedded_elsewhere names {family}, which {} lacks", manifest.display()));
         }
