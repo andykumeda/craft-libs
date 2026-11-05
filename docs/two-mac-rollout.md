@@ -244,3 +244,25 @@ The final DeckCraft host requires helper0.1.6 via the opt-in minimum-version API
 the font policy but failed normal-profile startup acceptance, so0.1.6 is the first qualified
 candidate. This records the host requirement, not a claim that DeckCraft was installed by
 this helper delivery. Generic API tests using a0.1.5 minimum remain valid version-gate tests.
+
+
+### Visible message-box outline — 2026-11-05
+
+| Host | Component | State | Evidence / activation |
+|---|---|---|---|
+| AKsMini | Shared helper0.1.7, sourcef2295dd | Deployed | Exact signed install; previous0.1.6 retained; four app protocol1 handshakes, unchanged public configuration/app hashes; installed normal Deck light/dark composer inspected. |
+| AKs-MBPro.local | Same signed shared helper0.1.7 | Deployed | Independent installed hash/signature/manifest and four handshakes; same preservation and installed Deck light/dark panel/render/normal-exit checks. |
+
+Archive SHA-256 `33ff84d86131119e597127d0d9f81aad1af6a5f556fa83e8657c37cb7458b23b`;
+signed native SHA-256 `f73b7e74f2db1f8e69e72c2dcf7621f164a3c3c0f5bc1e4ba730c2ee45a77d39`.
+Exact existing certificate/identifier and reviewed font pin37827 are retained. Both installer
+receipts: `/private/tmp/craft-assistant-017-20261105/package/installed-report.json` on their
+respective hosts. The shared UI adds only a visible idle/focus outline to the bottom composer;
+no sidebar separator, provider/model, schema or bridge change. Code and source publication,
+red/green contrast regression,481 UI/30 helper tests, Clippy/WASM, signed package and installed
+rendering evidence are detailed in [the outline record](assistant-composer-outline.md).
+
+No live inference was repeated for this visual-only update. Idle panels adopt the new helper
+after close/reopen; active turns keep their existing process. Normal-app consolidation and
+Preview removal belong to the suite coordinator. No public release/notarization or physical
+VoiceOver/IME/clipboard acceptance is claimed.

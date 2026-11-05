@@ -1,6 +1,6 @@
 # Independently updated assistant
 
-Current source (2026-11-05): helper0.1.7 adds a visible idle/focus outline to the bottom message box. Source tests, light/dark visual checks and signed candidate qualification pass; coordinated installation remains pending. The previously deployed helper0.1.6 normal Codex behavior remains unchanged. See [composer outline verification](assistant-composer-outline.md) and [two-Mac rollout](two-mac-rollout.md).
+Current source (2026-11-05): helper0.1.7 adds a visible idle/focus outline to the bottom message box. Source tests, light/dark visual checks and signed qualification pass; helper0.1.7 is now installed on both Macs with per-host handshakes and installed panel rendering checks. The previously deployed helper0.1.6 normal Codex behavior remains unchanged. See [composer outline verification](assistant-composer-outline.md) and [two-Mac rollout](two-mac-rollout.md).
 
 Historical delivery status (2026-11-03): local certificate-pinned assistant0.1.1 is installed and its independent UI update passed native checks in all three existing apps on both Macs. Compact rebuilt hosts are in progress; earlier qualification remains historical below. Source-level MCP parity is verified; native qualification and the independent-update demonstration remain partial. See [two-Mac rollout](two-mac-rollout.md) for current device-specific evidence and limitations. No public releases have been published.
 
