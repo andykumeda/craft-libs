@@ -172,10 +172,19 @@ fn export_widget_screenshots() {
         settings: configured(),
         ..Default::default()
     };
-    for (name, open, dark) in [("pane", false, true), ("settings", true, true), ("pane-light", false, false)] {
+    for (name, open, dark, focused) in [
+        ("pane", false, true, false),
+        ("settings", true, true, false),
+        ("pane-light", false, false, false),
+        ("pane-focus", false, true, true),
+        ("pane-light-focus", false, false, true),
+    ] {
         pane.settings_open = open;
         let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(420.0, 900.0)).build_ui(|ui| {
-            ui.ctx().set_visuals(if dark { egui::Visuals::dark() } else { egui::Visuals::light() });
+            ui.ctx().set_visuals(composer_host_visuals(dark));
+            if focused {
+                ui.memory_mut(|memory| memory.request_focus(Id::unique("assistant-capture").with("composer")));
+            }
             let _ = show(ui, Id::unique("assistant-capture"), &mut pane, str::to_owned);
         });
         harness.run();
@@ -473,4 +482,69 @@ fn transcript_hides_tool_messages_and_activity_but_keeps_conversation() {
     assert!(harness.query_by_label("Done editing").is_some());
     assert!(harness.query_by_label("Tool result").is_none());
     assert!(harness.query_by_label("save_document").is_none());
+}
+
+fn composer_host_visuals(dark: bool) -> egui::Visuals {
+    let mut visuals = if dark { egui::Visuals::dark() } else { egui::Visuals::light() };
+    // A host can use identical light fills, or dark fills that differ only slightly.
+    visuals.panel_fill = if dark { egui::Color32::from_rgb(38, 38, 42) } else { egui::Color32::WHITE };
+    visuals.extreme_bg_color = if dark { egui::Color32::from_rgb(30, 30, 34) } else { egui::Color32::WHITE };
+    visuals
+}
+
+#[test]
+fn composer_outline_is_visible_when_idle_and_focused_in_both_themes() {
+    fn contrast(a: egui::Color32, b: egui::Color32) -> f32 {
+        let luminance = |color: egui::Color32| {
+            let channel = |value: u8| {
+                let value = f32::from(value) / 255.0;
+                if value <= 0.04045 { value / 12.92 } else { ((value + 0.055) / 1.055).powf(2.4) }
+            };
+            0.2126 * channel(color.r()) + 0.7152 * channel(color.g()) + 0.0722 * channel(color.b())
+        };
+        let a = luminance(a) + 0.05;
+        let b = luminance(b) + 0.05;
+        a.max(b) / a.min(b)
+    }
+    for dark in [false, true] {
+        let mut idle_color = None;
+        for focused in [false, true] {
+            let ctx = egui::Context::default();
+            let visuals = composer_host_visuals(dark);
+            ctx.set_visuals(visuals.clone());
+            let id = Id::unique("composer-outline-test");
+            if focused {
+                ctx.memory_mut(|memory| memory.request_focus(id.with("composer")));
+            }
+            let mut state = State { available: true, ..Default::default() };
+            let output = ctx.run_ui(
+                egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(360.0, 600.0))), ..Default::default() },
+                |ui| {
+                    let _ = show(ui, id, &mut state, str::to_owned);
+                },
+            );
+            let outline = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::epaint::Shape::Rect(rect)
+                        if rect.corner_radius == egui::CornerRadius::same(12) && rect.fill == visuals.extreme_bg_color =>
+                    {
+                        Some(rect.stroke)
+                    }
+                    _ => None,
+                })
+                .expect("the composer must paint its rounded frame");
+            assert!(outline.width >= 1.0 && outline.color.a() == 255, "dark={dark}, focused={focused}: {outline:?}");
+            for background in [visuals.extreme_bg_color, visuals.panel_fill] {
+                assert!(contrast(outline.color, background) >= 3.0, "dark={dark}, focused={focused}: {outline:?} against {background:?}");
+            }
+            if focused {
+                assert_ne!(idle_color, Some(outline.color), "focus must remain visible");
+            } else {
+                idle_color = Some(outline.color);
+            }
+            output.drop_without_applying_deltas();
+        }
+    }
 }

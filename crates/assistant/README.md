@@ -87,3 +87,10 @@ Helper0.1.6 removes forced strict configuration validation from native Codex sta
 normal skills/plugin configuration uses Codex's default loader. Account, profile, permission
 and provider choices are unchanged. The0.1.5 activation attempt did not pass actual model
 acceptance; delivery must use the corrected signed version after its own acceptance checks.
+
+
+Helper0.1.7 adds a visible rounded outline around the message composer in light and dark themes,
+with the theme's selection outline while focused. It uses existing theme strokes and retains
+bridge/settings/history format1 and provider behavior. See the
+[composer verification record](../../docs/assistant-composer-outline.md) for source, package
+and per-device delivery status; a helper update does not require compatible hosts to rebuild.

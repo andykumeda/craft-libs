@@ -153,7 +153,9 @@ pub fn show(ui: &mut Ui, id: Id, state: &mut State, translate: impl Fn(&str) -> 
             },
         );
         ui.add_space(8.0);
-        egui::Frame::new().fill(ui.visuals().extreme_bg_color).corner_radius(12.0).inner_margin(10.0).show(ui, |ui| {
+        let focused = ui.memory(|memory| memory.has_focus(id.with("composer")));
+        let outline = if focused { ui.visuals().selection.stroke } else { ui.visuals().widgets.noninteractive.fg_stroke };
+        egui::Frame::new().fill(ui.visuals().extreme_bg_color).stroke(outline).corner_radius(12.0).inner_margin(10.0).show(ui, |ui| {
             composer(ui, id, state, &translate, &mut actions);
         });
     });
