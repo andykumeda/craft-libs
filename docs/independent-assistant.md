@@ -216,3 +216,10 @@ and replacement. New source regression checks the actual command builder's exact
 Follow-up verification:44native and33helper unit tests passed, including the exact startup-args
 regression; strict scoped all-target Clippy, formatting and whitespace checks passed. Signed
 helper0.1.6 actual installed-app model acceptance remains pending with the delivery owner.
+
+
+Helper0.1.6 delivery is now **Deployed** on both Macs after independent signed temporary-store
+actual installed Word model acceptance, followed by guarded global activation. Mini24.27s and
+MacBook10.11s native Terra document edits passed visible-result/Undo/Redo/save/reopen checks;
+configuration/app hashes were preserved and previous0.1.4 retained. Version0.1.5's failed
+strict-config activation was rolled back first. See [two-Mac delivery evidence](two-mac-rollout.md#normal-codex-environment-workspace-safety-and-approvals--2026-11-04).
