@@ -1,6 +1,6 @@
 # Assistant message-box outline
 
-Updated 2026-11-05. Status: **Verified source; release packaging in progress**.
+Updated 2026-11-05. Status: **Verified source and signed candidate; coordinated installation pending**.
 
 The owner requested a clearer border around the message box at the bottom of the PDFCraft
 assistant. The shared composer frame previously had only a background fill; its multiline
@@ -23,7 +23,7 @@ and verifies the candidate on each Mac; source and package checks alone are not 
 | Red proof | Verified | New regression failed against the old fill-only frame: width0/alpha0 in light idle. Same regression passes with the outline. |
 | UI checks | Verified | craft-ui lib481passed/2ignored; ignored synthetic visual capture explicitly run and passed; light/dark idle/focus PNGs inspected. |
 | Helper checks | Verified | craft-assistant all-target tests30passed; scoped all-target Clippy with warnings denied passes for UI/helper; craft-ui WASM check passes; formatting/diff checks pass. Existing unused egui patch warnings remain. |
-| Candidate package | In progress | Optimized helper0.1.7 with exact existing local signer, reviewed font pin37827adc41fd165f9a9234ac40f94dbad353aa69 and protocol1; no public release/notarization. |
+| Candidate package | Verified | Optimized helper0.1.7 release passed; exact existing signer, immutable temporary-store installer and all four app protocol1 handshakes pass. Reviewed font pin37827adc41fd165f9a9234ac40f94dbad353aa69. No public release/notarization. |
 | Both-Mac installation | Not started | Coordinator owns activation, installed-path rendering and per-host evidence. |
 
 Regression: `composer_outline_is_visible_when_idle_and_focused_in_both_themes` in
@@ -35,3 +35,30 @@ Logs: `/private/tmp/craft-assistant017-{outline-red,outline-green,ui-tests,visua
 Durable reviewed build input: `~/.local/share/craft-build-inputs/helper-fonts-37827`.
 Physical VoiceOver, native IME/clipboard and live provider inference were not repeated for this
 visual-only fix. All existing data and update/activation safeguards remain in place.
+
+## Signed candidate
+
+Source commit: `f2295dd9808016cab89e25c091027069f49dcddc`.
+Candidate directory: `/private/tmp/craft-assistant-017-20261105/package/`.
+Archive `craft-assistant-macos-arm64.tar.gz` SHA-256:
+`33ff84d86131119e597127d0d9f81aad1af6a5f556fa83e8657c37cb7458b23b`.
+Signed executable SHA-256:
+`f73b7e74f2db1f8e69e72c2dcf7621f164a3c3c0f5bc1e4ba730c2ee45a77d39`.
+Certificate leaf: `D7B1B5524FFEB37AB01D3960017BDF6743E3EDFD`;
+bundle identifier: `local.craft.shared-assistant`.
+The authenticated manifest retains protocol/settings/history range1. The package was signed,
+strictly verified, installed only into a disposable trusted store, and independently initialized
+for PDFCraft, WordCraft, GridCraft and DeckCraft with version0.1.7/protocol1 replies. No production
+active pointer or application was changed by qualification. Release build completed in6m14s.
+
+The coordinator's existing installer route is prepared in
+`/private/tmp/craft-assistant-017-20261105/install-helper.py`; it checks the receipt/archive,
+uses the existing certificate-pinned immutable installer, preserves the previous helper,
+verifies four installed handshakes and checks public configuration/app hashes are unchanged.
+Copy only the installer script and package archive/receipt/installer executable to the other
+host; do not copy user profiles, credentials or conversations. Installed-path rendering and
+per-host activation evidence remain separate acceptance checks.
+
+GitHub rejected the first two existing-fork pushes with an Internal Server Error. Read-only
+remote verification showed the previous source ref unchanged; source commits remain local
+until a successful explicit push is recorded. This does not imply a public release.
