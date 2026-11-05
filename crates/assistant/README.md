@@ -82,3 +82,8 @@ handshake is checked before frame ingestion. Rejected helpers cannot allocate fr
 or apply frame platform commands. Debug executable overrides have no signed manifest and are
 checked on Ready, after Initialize but before any frame; bridge1 has no earlier Hello message.
 Existing hosts keep their current compatibility policy unless they opt in.
+
+Helper0.1.6 removes forced strict configuration validation from native Codex startup so existing
+normal skills/plugin configuration uses Codex's default loader. Account, profile, permission
+and provider choices are unchanged. The0.1.5 activation attempt did not pass actual model
+acceptance; delivery must use the corrected signed version after its own acceptance checks.

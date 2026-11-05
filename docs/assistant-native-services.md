@@ -229,3 +229,10 @@ whitespace checks passed. Removing installed-bundle discovery makes its determin
 fail; restoring it passes. The explicit local installed-bundle smoke resolved the ChatGPT CLI
 and printed `codex-cli 0.166.0-alpha.6`. This proves process discovery/startup only; authenticated
 provider compatibility, containment and inference remain separate from this version check.
+
+Helper0.1.6 follows Codex's normal configuration-loading semantics without forcing
+`--strict-config`. The strict override rejected a legacy skills configuration field accepted
+by the same installed Codex executable in normal mode, disconnecting before a native turn.
+No profile or provider fallback is introduced; the original normal profile is still used.
+A command-builder regression checks the exact app-server argument list. Other startup/runtime
+errors remain reported to the user without replay; stderr stays private and is not logged.

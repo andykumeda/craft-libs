@@ -200,3 +200,19 @@ installation is claimed; final rebuilt helper acceptance and app-engine Undo rem
 delivery owner. Asset inputs and existing app tool catalogs are unchanged by this follow-up.
 
 Strict scoped all-target Clippy, formatting and whitespace checks passed for the follow-up.
+
+## Native profile startup compatibility follow-up (helper0.1.6 source)
+
+The Mini's actual installed WordCraft model turn exposed a forced strict-config incompatibility:
+the installed Codex accepted its normal skills configuration without the flag, but rejected a
+legacy skills field with strict validation and disconnected. The adapter now uses normal
+app-server config-loading arguments, preserving the same profile/account and policies. This
+is a new immutable helper0.1.6; helper0.1.5 remains a recorded incomplete activation attempt.
+The MacBook0.1.5 install completed before the failure hold arrived: signature/hash/4app
+handshakes and unchanged configuration/app binaries passed, previous0.1.4 retained; no model
+turn was launched there and deployed/usable status was not claimed. Delivery owns rollback
+and replacement. New source regression checks the actual command builder's exact arguments.
+
+Follow-up verification:44native and33helper unit tests passed, including the exact startup-args
+regression; strict scoped all-target Clippy, formatting and whitespace checks passed. Signed
+helper0.1.6 actual installed-app model acceptance remains pending with the delivery owner.

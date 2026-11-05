@@ -178,6 +178,13 @@ fn command(options: &CodexOptions, cwd: &Path) -> Result<Command, AiError> {
     Ok(command)
 }
 
+fn app_server_command(options: &CodexOptions, cwd: &Path) -> Result<Command, AiError> {
+    let mut command = command(options, cwd)?;
+    // Match normal Codex config loading: strict validation rejects supported legacy/plugin fields.
+    command.args(["app-server", "--listen", "stdio://"]).stdin(Stdio::piped()).stdout(Stdio::piped());
+    Ok(command)
+}
+
 mod interaction;
 mod workspace;
 pub use interaction::validate_interaction_response;
@@ -263,10 +270,7 @@ impl RpcClient {
         config.validate()?;
         cancel.check()?;
         let work = WorkingDirectory::selected(workspace)?;
-        let child = command(options, &work.0)?
-            .args(["app-server", "--strict-config", "--listen", "stdio://"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
+        let child = app_server_command(options, &work.0)?
             .spawn()
             .map_err(|_| AiError::unsupported("Codex could not start. Install Codex or choose its executable in the assistant configuration."))?;
         let mut client = Self::from_child(child, work, config, cancel)?;
@@ -1110,6 +1114,13 @@ mod tests {
         assert!(!env.contains_key(std::ffi::OsStr::new("HOME")));
         assert!(!env.contains_key(std::ffi::OsStr::new("USERPROFILE")));
         assert!(command.get_args().next().is_none(), "normal runtime config must not be overridden");
+    }
+
+    #[test]
+    fn app_server_uses_normal_config_loading_without_strict_override() {
+        let options = CodexOptions { binary: std::env::current_exe().unwrap(), home: std::env::temp_dir() };
+        let command = app_server_command(&options, &std::env::temp_dir()).unwrap();
+        assert_eq!(command.get_args().collect::<Vec<_>>(), ["app-server", "--listen", "stdio://"]);
     }
 
     #[test]
