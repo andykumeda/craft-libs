@@ -105,3 +105,11 @@ native approvals, questions and MCP elicitations explicitly; absence of an inter
 fails without granting permissions. Craft document tools remain host-owned and undoable; native
 shell/plugin changes follow Codex policy and are outside app Undo. This replaces the earlier
 Craft-only isolated Codex profile; no profile/configuration is copied or rewritten by startup.
+
+Native Codex workspaces do not inherit the caller's current directory. `CRAFT_CODEX_WORKSPACE`
+takes precedence over `CodexProvider::with_workspace`; otherwise the shared settings root's
+`workspaces/codex` directory is used. Helper hosts pass the stable app-specific directory from
+`workspace_for_app`. Absolute non-root project/output paths are required; parent traversal,
+application bundles and symlink targets resolving there are refused. Created directories are
+private on Unix, existing permissions are preserved, and outputs are retained. This does not
+change normal CODEX_HOME/HOME configuration, account or skill/plugin discovery.

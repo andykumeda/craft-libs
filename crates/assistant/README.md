@@ -62,9 +62,12 @@ Tool calls, results and activity details remain in assistant state but are hidde
 
 Helper0.1.5 source uses the current Codex profile/account and its enabled skills, plugins,
 MCP servers and configured permissions. `CODEX_HOME` selects the profile, otherwise Codex's
-normal `~/.codex` applies. HOME-based skills and the inherited launch working directory remain
-available. Existing Codex configuration is not copied or overwritten. Settings identifies this
-shared profile behavior; an existing ChatGPT sign-in is reused.
+normal `~/.codex` applies. HOME-based skills remain available. The workspace defaults to
+`<Craft AI config root>/workspaces/<app-id>`, retaining generated outputs; it never inherits the
+GUI launch directory. `CRAFT_CODEX_WORKSPACE` explicitly selects an absolute project directory.
+Unsafe or invalid paths fail without fallback; existing project permissions are preserved.
+Existing Codex configuration is not copied or overwritten. Settings identifies the profile and
+workspace; an existing ChatGPT sign-in is reused.
 
 The pane shows native command/file/permission requests and input/MCP forms with explicit
 responses and Stop. There are no automatic grants. Compatible hosts keep bridge1; helper-owned
@@ -72,3 +75,10 @@ rendering handles the new UI. Private-pipe automation can query `interaction_pen
 `respond` with the exact pending id and response. Never log request parameters or user answers.
 App-engine document calls preserve Undo; external native shell/plugin changes follow Codex
 policy and are not part of app Undo. See the current [native contract](../../docs/assistant-native-services.md#codex-adapter-helper-015-source).
+
+Hosts can opt into a helper minimum with `Controller::require_minimum_version(0, 1, 5)`.
+Signed installation versions are checked before process startup, and every helper's Ready
+handshake is checked before frame ingestion. Rejected helpers cannot allocate frame textures
+or apply frame platform commands. Debug executable overrides have no signed manifest and are
+checked on Ready, after Initialize but before any frame; bridge1 has no earlier Hello message.
+Existing hosts keep their current compatibility policy unless they opt in.

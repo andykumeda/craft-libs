@@ -35,9 +35,16 @@ The earlier `in_shared_root(root)` constructor remains compatible with existing 
 uses the same discovery; it now selects the normal
 `CODEX_HOME`, or `~/.codex` when unset. `HOME` and the normal process environment remain intact
 for Codex's global skills, installed plugins, MCP configuration, credentials and policies.
-The working directory is the helper's inherited launch directory, so Codex resolves project
-configuration there. Craft does not copy the coding profile or rewrite its configuration. Settings displays the
-effective profile directory for verification.
+The workspace is independent of the helper's launch directory (including Finder's `/`).
+`CRAFT_CODEX_WORKSPACE` selects an absolute project/output directory. Without it the helper uses
+`<Craft AI config root>/workspaces/<app-id>`; standalone provider consumers use `workspaces/codex`
+unless they supply an app default with `with_workspace`. Outputs persist across turns and restarts.
+Root, relative, parent-traversal and application-bundle paths are refused, including existing
+symlink targets; invalid overrides fail without fallback. Newly created directories are private
+on Unix; existing project permissions are preserved. Codex resolves project configuration in
+this selected workspace while its normal HOME/CODEX_HOME skills, plugins and account remain
+available. Craft does not copy the profile or rewrite its configuration. Settings displays
+both the selected workspace and effective profile directory for verification.
 Existing app conversations remain in Craft's app-specific history.
 
 `CRAFT_CODEX_BINARY` is an exact executable override. Otherwise discovery tries PATH first,

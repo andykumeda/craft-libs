@@ -17,7 +17,7 @@ use craft_ai_core::{
     AiError, AppId, Auth, Binding, Connection, ConnectionDraft, ConnectionId, KeyChange, ModelId, ModelInfo, Prepared, SecretRef, SecretString,
     StoreFile,
 };
-use craft_ai_native::codex::{CodexOptions, CodexProvider, InteractionHandler, validate_interaction_response};
+use craft_ai_native::codex::{CodexOptions, CodexProvider, InteractionHandler, validate_interaction_response, workspace_for_app};
 use craft_ai_native::secrets::{KeyringStore, SecretStore};
 use craft_ai_native::storage::{HistoryStore, SharedStore};
 use craft_ai_native::{Cancellation, ChatProvider, HttpProvider, ModelRequest, TurnEvent, TurnRequest, resolve_choice, run_turn};
@@ -85,16 +85,16 @@ fn interaction_handler(sender: mpsc::SyncSender<PendingInteraction>, wake: egui:
 }
 
 impl Native {
-    fn codex_for_turn(&mut self, root: &std::path::Path) -> CodexProvider {
+    fn codex_for_turn(&mut self, root: &std::path::Path, app: &AppId) -> Result<CodexProvider, String> {
         if let Some((cached_root, template)) = &self.codex_template
             && cached_root == root
         {
-            return template.fork_turn();
+            return Ok(template.fork_turn());
         }
-        let template = Arc::new(CodexProvider::new(CodexOptions::in_shared_root(root)));
+        let template = Arc::new(codex_provider(root, app)?);
         let turn = template.fork_turn();
         self.codex_template = Some((root.to_owned(), template));
-        turn
+        Ok(turn)
     }
 
     fn invalidate_codex_on(&mut self, action: &Action) {
@@ -208,13 +208,18 @@ pub(super) fn refresh_settings(app: &mut Session) -> Result<(), String> {
     action(app, Action::ReloadSettings)
 }
 
+fn codex_provider(root: &std::path::Path, app: &AppId) -> Result<CodexProvider, String> {
+    let workspace = workspace_for_app(root, app).map_err(fail)?;
+    Ok(CodexProvider::new(CodexOptions::from_environment()).with_workspace(workspace))
+}
+
 struct Providers {
     http: HttpProvider,
     codex: CodexProvider,
 }
 impl Providers {
-    fn new(root: &std::path::Path, secrets: Arc<dyn SecretStore>) -> Self {
-        Self { http: HttpProvider::new(secrets), codex: CodexProvider::new(CodexOptions::in_shared_root(root)) }
+    fn new(root: &std::path::Path, app: &AppId, secrets: Arc<dyn SecretStore>) -> Result<Self, String> {
+        Ok(Self { http: HttpProvider::new(secrets), codex: codex_provider(root, app)? })
     }
 }
 impl ChatProvider for Providers {
@@ -300,7 +305,7 @@ pub(super) fn action(app: &mut Session, requested: Action) -> Result<(), String>
     job(app, move |sender, cancel| {
         let store = SharedStore::new(root);
         if matches!(requested, Action::BeginCodexSignIn) {
-            let result = login(&store, &sender, &cancel);
+            let result = login(&store, &app_id, &sender, &cancel);
             let _ = sender.send(result);
         } else {
             let _ = sender.send(settings_action(&store, &app_id, requested, &cancel));
@@ -357,7 +362,7 @@ fn send(app: &mut Session, root: PathBuf, prompt: String) -> Result<(), String> 
     let target = app.target.clone();
     let tools = app.tools.clone();
     let initial_read = app.initial_read.clone();
-    let codex = app.assistant.native.codex_for_turn(&root).with_interaction(interaction_handler(interaction_tx, wake.clone()));
+    let codex = app.assistant.native.codex_for_turn(&root, &app_id)?.with_interaction(interaction_handler(interaction_tx, wake.clone()));
     std::thread::Builder::new()
         .name("craft-assistant".into())
         .spawn(move || {
@@ -476,8 +481,8 @@ fn settings_action(store: &SharedStore, app: &AppId, requested: Action, cancel: 
             let id = prepared.connection.id.clone();
             save_connection(store, prepared, &KeyringStore).map(|change| Update::ConnectionSaved { change, id })
         }
-        Action::DiscoverModels(draft) | Action::TestConnection(draft) => discover(store, draft, None, cancel),
-        Action::VerifyModel { connection, model } => discover(store, connection, Some(model), cancel),
+        Action::DiscoverModels(draft) | Action::TestConnection(draft) => discover(store, app, draft, None, cancel),
+        Action::VerifyModel { connection, model } => discover(store, app, connection, Some(model), cancel),
         Action::SaveBinding { role, connection, model, app_override, manual_tools } => {
             let connection = ConnectionId::new(connection).map_err(fail)?;
             let model = ModelId::new(model).map_err(fail)?;
@@ -522,7 +527,7 @@ fn settings_action(store: &SharedStore, app: &AppId, requested: Action, cancel: 
             history(store, app)?.delete(&id).map_err(fail)?;
             Ok(Update::Deleted(id))
         }
-        Action::RefreshCodex => refresh_codex(store, cancel),
+        Action::RefreshCodex => refresh_codex(store, app, cancel),
         _ => Err("this assistant action is not a settings operation".into()),
     }
 }
@@ -650,13 +655,13 @@ impl SecretStore for DraftSecrets {
     }
 }
 
-fn discover(store: &SharedStore, mut draft: ConnectionDraft, verify: Option<String>, cancel: &Cancellation) -> Result<Update, String> {
+fn discover(store: &SharedStore, app: &AppId, mut draft: ConnectionDraft, verify: Option<String>, cancel: &Cancellation) -> Result<Update, String> {
     let prepared = draft.prepare(&store.load().map_err(fail)?.connections).map_err(fail)?;
     let temporary = match prepared.key {
         KeyChange::Set(value) => prepared.connection.auth.secret_ref().map(|reference| (reference.clone(), value)),
         _ => None,
     };
-    let providers = Providers::new(store.root(), Arc::new(DraftSecrets { temporary }));
+    let providers = Providers::new(store.root(), app, Arc::new(DraftSecrets { temporary }))?;
     let config = store.config().map_err(fail)?;
     let models = if let Some(model) = verify {
         let id = ModelId::new(model).map_err(fail)?;
@@ -690,8 +695,8 @@ fn codex_connection() -> Result<Connection, String> {
     })
 }
 
-fn refresh_codex(store: &SharedStore, cancel: &Cancellation) -> Result<Update, String> {
-    let provider = CodexProvider::new(CodexOptions::in_shared_root(store.root()));
+fn refresh_codex(store: &SharedStore, app: &AppId, cancel: &Cancellation) -> Result<Update, String> {
+    let provider = codex_provider(store.root(), app)?;
     let config = store.config().map_err(fail)?;
     if !provider.signed_in(&config, cancel).map_err(fail)? {
         return Ok(Update::Notice("Sign into the selected Codex profile first.".into()));
@@ -701,18 +706,18 @@ fn refresh_codex(store: &SharedStore, cancel: &Cancellation) -> Result<Update, S
     save_connection(store, Prepared { connection, key: KeyChange::Keep }, &KeyringStore).map(|change| Update::Store(change.store))
 }
 
-fn login(store: &SharedStore, sender: &mpsc::SyncSender<Result<Update, String>>, cancel: &Cancellation) -> Result<Update, String> {
-    let provider = CodexProvider::new(CodexOptions::in_shared_root(store.root()));
+fn login(store: &SharedStore, app: &AppId, sender: &mpsc::SyncSender<Result<Update, String>>, cancel: &Cancellation) -> Result<Update, String> {
+    let provider = codex_provider(store.root(), app)?;
     let config = store.config().map_err(fail)?;
     if provider.signed_in(&config, cancel).map_err(fail)? {
-        return refresh_codex(store, cancel);
+        return refresh_codex(store, app, cancel);
     }
     let mut session = provider.start_login(&config, cancel).map_err(fail)?;
     let _ = sender.send(Ok(Update::Login { url: session.authorization_url.clone(), code: session.user_code.clone() }));
     loop {
         cancel.check().map_err(fail)?;
         match session.poll(cancel).map_err(fail)? {
-            Some(true) => return refresh_codex(store, cancel),
+            Some(true) => return refresh_codex(store, app, cancel),
             Some(false) => return Err("Codex sign-in was not completed".into()),
             None => std::thread::sleep(Duration::from_millis(100)),
         }
@@ -833,6 +838,16 @@ fn set_store(app: &mut Session, store: StoreFile) {
         app.assistant.widget.chat_route = route.clone();
         app.assistant.widget.control_route = route;
         app.assistant.widget.settings.codex_profile = CodexOptions::from_environment().home.display().to_string();
+        app.assistant.widget.settings.codex_workspace = app
+            .assistant
+            .native
+            .root
+            .as_ref()
+            .ok_or_else(|| "Assistant settings are still loading.".to_owned())
+            .and_then(|root| codex_provider(root, &id))
+            .and_then(|provider| provider.workspace().map_err(fail))
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|error| error);
         app.assistant.widget.settings.codex_status = if store.connections.iter().any(|connection| connection.provider == "codex") {
             tr!(app, "Codex connection saved.")
         } else {

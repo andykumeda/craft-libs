@@ -414,3 +414,38 @@ fn installed_component_updates_appear_only_in_settings() {
         output.textures_delta.clear();
     }
 }
+
+#[test]
+fn minimum_version_is_opt_in_and_uses_semantic_release_order() {
+    let controller = Controller::new("deckcraft", BTreeMap::new()).require_minimum_version(0, 1, 5);
+    let minimum = controller.minimum_version.as_ref();
+    for version in ["0.1.4", "0.1.5-alpha.1", "malformed"] {
+        assert!(check_minimum_version(minimum, version).is_err());
+    }
+    for version in ["0.1.5", "0.1.5+build", "0.2.0"] {
+        assert!(check_minimum_version(minimum, version).is_ok());
+    }
+    assert!(check_minimum_version(None, "legacy").is_ok());
+}
+
+#[cfg(unix)]
+#[test]
+fn debug_candidate_minimum_is_checked_before_it_can_become_ready() {
+    let (_temporary, mut controller) = connected(&[ready("0.1.4")], "0.1.4");
+    controller = controller.require_minimum_version(0, 1, 5);
+    await_outcome(&mut controller);
+    assert!(!controller.ready());
+    assert!(controller.panel.is_none());
+    assert!(controller.error().unwrap().contains("0.1.5"));
+}
+
+#[test]
+fn signed_installation_minimum_is_checked_before_executable_spawn() {
+    let mut installed = replacement();
+    installed.version = semver::Version::new(0, 1, 4);
+    installed.manifest.version = installed.version.clone();
+    let result = spawn_installed(configured(PathBuf::from("synthetic-test-root")), installed, Some(&semver::Version::new(0, 1, 5)));
+    let error = result.err().unwrap();
+    assert!(error.contains("requires shared assistant 0.1.5"));
+    assert!(!error.contains("could not start"));
+}

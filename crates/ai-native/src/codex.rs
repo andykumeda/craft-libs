@@ -53,6 +53,7 @@ pub struct CodexProvider {
     turn_verified: Arc<Mutex<Vec<CompatibilityIdentity>>>,
     waiting: Arc<Mutex<WaitingExchanges>>,
     interaction: Option<Arc<InteractionHandler>>,
+    workspace: Option<PathBuf>,
 }
 
 fn configured_binary(value: Option<std::ffi::OsString>) -> PathBuf {
@@ -140,8 +141,8 @@ fn private_dir(path: &Path) -> Result<(), AiError> {
 
 struct WorkingDirectory(PathBuf, bool);
 impl WorkingDirectory {
-    fn current() -> Result<Self, AiError> {
-        std::env::current_dir().map(|path| Self(path, false)).map_err(|_| protocol("Could not resolve the Codex working directory."))
+    fn selected(default: Option<&Path>) -> Result<Self, AiError> {
+        workspace::prepare(workspace::selected(default)?).map(|path| Self(path, false))
     }
     #[cfg(test)]
     fn new(home: &Path) -> Result<Self, AiError> {
@@ -178,7 +179,9 @@ fn command(options: &CodexOptions, cwd: &Path) -> Result<Command, AiError> {
 }
 
 mod interaction;
+mod workspace;
 pub use interaction::validate_interaction_response;
+pub use workspace::workspace_for_app;
 
 /// Interactive native runtime requests. The client must obtain an explicit user response.
 pub type InteractionHandler = dyn Fn(&str, &Value, &Cancellation) -> Result<Value, AiError> + Send + Sync;
@@ -256,10 +259,10 @@ impl Drop for RpcClient {
 }
 
 impl RpcClient {
-    fn start(options: &CodexOptions, config: &RuntimeConfig, cancel: &Cancellation) -> Result<Self, AiError> {
+    fn start(options: &CodexOptions, config: &RuntimeConfig, cancel: &Cancellation, workspace: Option<&Path>) -> Result<Self, AiError> {
         config.validate()?;
         cancel.check()?;
-        let work = WorkingDirectory::current()?;
+        let work = WorkingDirectory::selected(workspace)?;
         let child = command(options, &work.0)?
             .args(["app-server", "--strict-config", "--listen", "stdio://"])
             .stdin(Stdio::piped())
@@ -500,7 +503,19 @@ impl CodexProvider {
             turn_verified: Arc::new(Mutex::new(Vec::new())),
             waiting: Arc::new(Mutex::new(WaitingExchanges::default())),
             interaction: None,
+            workspace: None,
         }
+    }
+
+    /// Set this app's default workspace; CRAFT_CODEX_WORKSPACE remains the explicit override.
+    pub fn with_workspace(mut self, path: PathBuf) -> Self {
+        self.workspace = Some(path);
+        self
+    }
+
+    /// Effective configured workspace, without creating or changing a user directory.
+    pub fn workspace(&self) -> Result<PathBuf, AiError> {
+        workspace::selected(self.workspace.as_deref())
     }
 
     /// Set the interactive client used for native approvals, questions and MCP elicitations.
@@ -516,6 +531,7 @@ impl CodexProvider {
             turn_verified: Arc::new(Mutex::new(Vec::new())),
             waiting: Arc::new(Mutex::new(WaitingExchanges::default())),
             interaction: self.interaction.clone(),
+            workspace: self.workspace.clone(),
         }
     }
 
@@ -544,13 +560,13 @@ impl CodexProvider {
 
     /// No account identifiers or tokens are returned to the app.
     pub fn signed_in(&self, config: &RuntimeConfig, cancel: &Cancellation) -> Result<bool, AiError> {
-        let mut client = RpcClient::start(&self.options, config, cancel)?;
+        let mut client = RpcClient::start(&self.options, config, cancel, self.workspace.as_deref())?;
         let account = client.call("account/read", json!({"refreshToken":false}), cancel)?;
         Ok(account.pointer("/account/type").and_then(Value::as_str) == Some("chatgpt"))
     }
 
     pub fn start_login(&self, config: &RuntimeConfig, cancel: &Cancellation) -> Result<LoginSession, AiError> {
-        let mut client = RpcClient::start(&self.options, config, cancel)?;
+        let mut client = RpcClient::start(&self.options, config, cancel, self.workspace.as_deref())?;
         let result = client.call("account/login/start", json!({"type":"chatgptDeviceCode"}), cancel)?;
         let id = result.get("loginId").and_then(Value::as_str).ok_or_else(|| protocol("Codex did not provide a sign-in identifier."))?.to_owned();
         let url = result.get("verificationUrl").and_then(Value::as_str).ok_or_else(|| protocol("Codex did not provide a sign-in URL."))?.to_owned();
@@ -789,7 +805,7 @@ impl CodexProvider {
             if request.messages.last().is_none_or(|message| message.role != MessageRole::User) {
                 return Err(continuation_failure());
             }
-            Exchange::start(&self.options, request, cancel, self.interaction.clone())?
+            Exchange::start(&self.options, request, cancel, self.interaction.clone(), self.workspace.as_deref())?
         };
         let (answer, request_id) = exchange.receive(cancel, emit)?;
         if let Some(request_id) = request_id {
@@ -871,8 +887,9 @@ impl Exchange {
         request: &ModelRequest<'_>,
         cancel: &Cancellation,
         interaction: Option<Arc<InteractionHandler>>,
+        workspace: Option<&Path>,
     ) -> Result<Self, AiError> {
-        let mut client = RpcClient::start(options, request.config, cancel)?;
+        let mut client = RpcClient::start(options, request.config, cancel, workspace)?;
         client.interaction = interaction;
         let instructions = request
             .messages
@@ -1025,7 +1042,7 @@ impl ChatProvider for CodexProvider {
     }
 
     fn models(&self, _connection: &Connection, config: &RuntimeConfig, cancel: &Cancellation) -> Result<Vec<ModelInfo>, AiError> {
-        let mut client = RpcClient::start(&self.options, config, cancel)?;
+        let mut client = RpcClient::start(&self.options, config, cancel, self.workspace.as_deref())?;
         let mut models = Vec::new();
         let mut cursor = Value::Null;
         for _ in 0..config.max_rounds {

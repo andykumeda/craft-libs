@@ -172,3 +172,31 @@ was omitted; restored source passed. The owned-command failure test also cleans 
 fixture PID. Source is ready for native acceptance, not a claim of signed installation or
 complete desktop/history parity. Real native skills/plugins, actual Codex subprocess cleanup
 and app-engine Undo acceptance remain with the delivery owner.
+
+## Workspace safety and host minimum follow-up (helper 0.1.5 source)
+
+| Workstream | Acceptance | State | Delivery |
+| --- | --- | --- | --- |
+| Codex workspace | Finder cwd `/` never becomes writable workspace; explicit absolute override, stable app outputs, invalid-path refusal and existing permission preservation | Verified | Source checks; rebuilt native acceptance remains with delivery owner |
+| Host helper minimum | Opt-in semantic version gate rejects signed old installs before spawn and debug old Ready before any frame effects | Verified | Deck host opts into minimum0.1.5; existing hosts unchanged |
+
+`CRAFT_CODEX_WORKSPACE` is the explicit project/output override. Otherwise each helper app uses
+`<Craft AI config root>/workspaces/<app-id>` and preserves outputs; normal Codex global profile,
+account and capabilities remain shared. Settings displays both workspace and profile. Existing
+project permissions are retained; new Unix directories are private. Root, traversal, relative
+and application-bundle paths, including resolved symlinks, fail without fallback. The selected
+workspace controls Codex project-config discovery, separate from normal HOME/CODEX_HOME.
+
+The host API adds `Controller::require_minimum_version(major, minor, patch)` without changing
+bridge1 or shared settings schemas. Signed Installed.version is checked before spawn; debug
+executables are checked on Ready after Initialize (bridge1 has no pre-initialization Hello).
+The bridge refuses old handshakes before frame texture allocation or platform effects, even
+when Ready and Frame arrive in one poll. Helper0.1.5 has not been installed by this source change.
+
+Workspace/gate verification: native43 unit +6HTTP +24runtime checks, helper32unit +6integration/
+process checks, bridge15unit, UI480unit +8integration +7doctests passed. Final focused checks (19 Controller and3 workspace tests)
+also cover the signed pre-spawn gate and the actual Finder WorkingDirectory path. No live
+installation is claimed; final rebuilt helper acceptance and app-engine Undo remain with the
+delivery owner. Asset inputs and existing app tool catalogs are unchanged by this follow-up.
+
+Strict scoped all-target Clippy, formatting and whitespace checks passed for the follow-up.

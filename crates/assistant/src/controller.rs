@@ -30,6 +30,7 @@ pub enum Request {
 /// Each host owns one connection. Installed executable paths remain pinned for active sessions.
 pub struct Controller {
     app: String,
+    minimum_version: Option<semver::Version>,
     translations: BTreeMap<String, String>,
     client: Option<Client>,
     panel: Option<EmbeddedPanel>,
@@ -58,6 +59,7 @@ impl Controller {
     pub fn new(app: &str, translations: BTreeMap<String, String>) -> Self {
         Self {
             app: app.into(),
+            minimum_version: None,
             translations,
             client: None,
             panel: None,
@@ -82,6 +84,12 @@ impl Controller {
             replacement: None,
             restart_barrier: None,
         }
+    }
+    /// Require a helper version before starting a signed installation or accepting its frames.
+    /// Existing hosts have no additional minimum unless they opt in.
+    pub fn require_minimum_version(mut self, major: u64, minor: u64, patch: u64) -> Self {
+        self.minimum_version = Some(semver::Version::new(major, minor, patch));
+        self
     }
     pub fn generation(&self) -> u64 {
         self.generation
@@ -134,8 +142,9 @@ impl Controller {
             .unwrap_or(Duration::from_secs(default_startup_timeout_secs()));
         let (sender, receiver) = mpsc::sync_channel(1);
         let wake = ctx.clone();
+        let minimum = self.minimum_version.clone();
         let result = std::thread::Builder::new().name("assistant-start".into()).spawn(move || {
-            let result = start_component();
+            let result = start_component(minimum.as_ref());
             let _ = sender.send(result);
             wake.request_repaint();
         });
@@ -201,7 +210,7 @@ impl Controller {
             self.fail("The assistant did not become ready. Reopen it after checking its installation.".into());
         }
         if let (Some(panel), Some(client)) = (&mut self.panel, &mut self.client) {
-            panel.poll(ctx, client);
+            panel.poll_with_version_check(ctx, client, |version| check_minimum_version(self.minimum_version.as_ref(), version));
         }
         self.receive_events(ctx);
         self.restart_if_ready();
@@ -244,6 +253,7 @@ impl Controller {
                 HelperMessage::Ready { protocol, version, capabilities } => {
                     if self.ready
                         || self.expected_version.as_ref().is_some_and(|expected| expected != &version)
+                        || check_minimum_version(self.minimum_version.as_ref(), &version).is_err()
                         || protocol != PROTOCOL
                         || !capabilities.iter().any(|c| c == "tools-v1")
                     {
@@ -532,7 +542,19 @@ impl Controller {
         }
     }
 }
-fn start_component() -> Result<Started, String> {
+fn check_minimum_version(minimum: Option<&semver::Version>, version: &str) -> Result<(), String> {
+    if let Some(minimum) = minimum {
+        let actual =
+            semver::Version::parse(version).map_err(|_| "The assistant reported an invalid version. Update the shared assistant.".to_owned())?;
+        if actual < *minimum {
+            return Err(format!(
+                "This app requires shared assistant {minimum} or newer; installed version is {actual}. Update the shared assistant."
+            ));
+        }
+    }
+    Ok(())
+}
+fn start_component(minimum: Option<&semver::Version>) -> Result<Started, String> {
     let root = SharedStore::default_root().map_err(|e| e.to_string())?;
     // Explicit, debug-only development launch; shipping builds always require signed installation.
     #[cfg(debug_assertions)]
@@ -545,6 +567,14 @@ fn start_component() -> Result<Started, String> {
     }
     let config = ComponentConfig::load(&root)?;
     let installed = craft_assistant_install::Store::new(config.installation.clone())?.resolve(&compatibility())?;
+    spawn_installed(config, installed, minimum)
+}
+fn spawn_installed(
+    config: ComponentConfig,
+    installed: craft_assistant_install::Installed,
+    minimum: Option<&semver::Version>,
+) -> Result<Started, String> {
+    check_minimum_version(minimum, &installed.version.to_string())?;
     Ok((Client::spawn(&installed.executable, config.bridge.clone())?, Some(config), installed.executable, Some(installed.version.to_string())))
 }
 

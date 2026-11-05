@@ -26,6 +26,8 @@ pub struct SettingsState {
     pub error: Option<String>,
     /// Effective normal Codex profile path; transient display only.
     pub codex_profile: String,
+    /// Selected workspace path, or an actionable workspace configuration error.
+    pub codex_workspace: String,
     pub codex_status: String,
 }
 
@@ -311,6 +313,9 @@ fn codex(ui: &mut Ui, state: &SettingsState, tr: &impl Fn(&str) -> String, actio
     ui.small(tr("Uses your current Codex profile, account, skills, plugins and configured permissions. Requests needing your approval appear here."));
     if !state.codex_profile.is_empty() {
         ui.label(format!("{}: {}", tr("Codex profile"), state.codex_profile));
+    }
+    if !state.codex_workspace.is_empty() {
+        ui.label(format!("{}: {}", tr("Codex workspace"), state.codex_workspace));
     }
     if !state.codex_status.is_empty() {
         ui.label(&state.codex_status);
