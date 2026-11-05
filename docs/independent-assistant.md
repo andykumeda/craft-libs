@@ -1,6 +1,8 @@
 # Independently updated assistant
 
-Status (2026-11-03): local certificate-pinned assistant0.1.1 is installed and its independent UI update passed native checks in all three existing apps on both Macs. Compact rebuilt hosts are in progress; earlier qualification remains historical below. Source-level MCP parity is verified; native qualification and the independent-update demonstration remain partial. See [two-Mac rollout](two-mac-rollout.md) for current device-specific evidence and limitations. No public releases have been published.
+Current source (2026-11-04): helper0.1.5 normal Codex environment/approval implementation passed source verification; native acceptance remains in progress. Installed helpers remain separate until native acceptance and signed delivery. Earlier isolated-profile records below are historical.
+
+Historical delivery status (2026-11-03): local certificate-pinned assistant0.1.1 is installed and its independent UI update passed native checks in all three existing apps on both Macs. Compact rebuilt hosts are in progress; earlier qualification remains historical below. Source-level MCP parity is verified; native qualification and the independent-update demonstration remain partial. See [two-Mac rollout](two-mac-rollout.md) for current device-specific evidence and limitations. No public releases have been published.
 
 The assistant remains embedded in PDFCraft, WordCraft and GridCraft. A shared executable owns its interface and native services; each app retains document authorization, editing and Undo. Private process pipes carry a versioned protocol. Model/provider selection and authentication use the existing suite-wide store and credential namespace. App overrides remain optional; chats and file grants remain app-separated.
 
@@ -140,3 +142,33 @@ process tests passed again, with strict scoped all-target Clippy, formatting and
 checks green. Installed helper interaction is recorded by the delivery owner separately.
 
 Delivery checkpoint: helper 0.1.3 was signed and installed on the MacBook on 2026-11-04; installed native idle-control checks passed. See [per-device delivery evidence and limitations](two-mac-rollout.md#model-selector-and-macbook-codex-repair--2026-11-04). Mini activation remains unchanged.
+
+
+## Normal Codex environment and approvals — 2026-11-04
+
+| Workstream / owner | Acceptance | State | Release |
+| --- | --- | --- | --- |
+| Native profile/runtime / shared runtime agent | Normal CODEX_HOME/HOME/config startup and explicit skill/approval/continuation regressions | Verified | Source helper0.1.5 only; live acceptance pending |
+| Interactive request UI / shared UI agent | Explicit command/file/permission decisions, user questions and MCP forms/URLs; no automatic grants; bounded/redacted transient state | Verified | Synthetic UI/source checks; native interaction pending; bridge1 unchanged |
+| Helper fonts / shared UI agent | Deck-compatible permitted fonts; retained BIZ Japanese and native LXGW Hans; forbidden families excluded | Verified | Source/build-input checks; signed artifact check pending |
+| Native acceptance and delivery / delivery owner | Actual skill/document turn, configured plugins, native command cleanup on Stop/helper exit, signed helper and host acceptance | In progress | No installation claimed by this source change |
+
+The native profile contract is documented in [Assistant native services](assistant-native-services.md#codex-adapter-helper-015-source).
+This slice does not migrate native desktop history: Craft retains app-specific canonical chats
+and ephemeral native turns. Registered app document tools keep engine Undo; native external
+shell/plugin operations follow Codex's configured policy and are outside app Undo. No user
+Codex configuration is rewritten by startup, and no provider/account fallback is introduced.
+
+Public app-server documentation and the installed0.166.0-alpha.6 experimental schema guided
+the request/response implementation. External craftrules standards were unavailable locally
+and returned404; repository safety, asset and code-quality instructions were followed.
+
+Source verification for this slice: 480 UI tests,70 native-provider/HTTP/runtime checks,
+30 helper unit tests,6 helper integration/process tests,19 font-build checks and7 UI doctests
+passed; further UI integration tests also passed. Strict scoped all-target Clippy, formatting,
+whitespace and craft-ui WASM checks passed. Three negative controls failed as intended when
+HOME isolation was restored, the post-response deadline reset was removed, or native interruption
+was omitted; restored source passed. The owned-command failure test also cleans its exact
+fixture PID. Source is ready for native acceptance, not a claim of signed installation or
+complete desktop/history parity. Real native skills/plugins, actual Codex subprocess cleanup
+and app-engine Undo acceptance remain with the delivery owner.

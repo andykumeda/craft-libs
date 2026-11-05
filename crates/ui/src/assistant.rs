@@ -5,7 +5,9 @@ use craft_ai_core::assistant::{AssistantRole, Message, MessageRole};
 use craft_ai_core::{ConnectionDraft, ConnectionId, Prepared};
 use egui::{Id, Ui};
 
+mod interaction;
 mod settings;
+pub use interaction::{Interaction, InteractionForm};
 pub use settings::{RoleEdit, SettingsState, settings};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,12 +45,14 @@ pub struct State {
     pub activity: Vec<Activity>,
     pub settings_open: bool,
     pub settings: SettingsState,
+    pub interaction: Option<Interaction>,
+    pub interaction_form: InteractionForm,
 }
 
 /// An explicit user request. Applying it is always the host's responsibility.
-#[derive(Debug)]
 pub enum Action {
     Send(String),
+    Respond { id: u64, response: serde_json::Value },
     Stop,
     NewChat,
     OpenChat(String),
@@ -68,10 +72,37 @@ pub enum Action {
     DeleteConnection(ConnectionId),
 }
 
+impl std::fmt::Debug for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::Send(_) => "Send",
+            Self::Respond { id, .. } => return f.debug_struct("Respond").field("id", id).finish_non_exhaustive(),
+            Self::Stop => "Stop",
+            Self::NewChat => "NewChat",
+            Self::OpenChat(_) => "OpenChat",
+            Self::DeleteChat(_) => "DeleteChat",
+            Self::ChooseFiles => "ChooseFiles",
+            Self::AddFile(_) => "AddFile",
+            Self::RemoveFile(_) => "RemoveFile",
+            Self::SaveConnection(_) => "SaveConnection",
+            Self::DiscoverModels(_) => "DiscoverModels",
+            Self::TestConnection(_) => "TestConnection",
+            Self::VerifyModel { .. } => "VerifyModel",
+            Self::BeginCodexSignIn => "BeginCodexSignIn",
+            Self::RefreshCodex => "RefreshCodex",
+            Self::ReloadSettings => "ReloadSettings",
+            Self::SaveBinding { .. } => "SaveBinding",
+            Self::UseSuiteDefault { .. } => "UseSuiteDefault",
+            Self::DeleteConnection(_) => "DeleteConnection",
+        };
+        f.write_str(name)
+    }
+}
+
 impl State {
     /// Empty, unavailable and busy submissions preserve the draft.
     pub fn submit(&mut self) -> Option<Action> {
-        if !self.available || self.busy || self.draft.trim().is_empty() {
+        if !self.available || self.busy || self.interaction.is_some() || self.draft.trim().is_empty() {
             return None;
         }
         Some(Action::Send(std::mem::take(&mut self.draft)))
@@ -83,7 +114,16 @@ impl State {
 pub fn show(ui: &mut Ui, id: Id, state: &mut State, translate: impl Fn(&str) -> String) -> Vec<Action> {
     let mut actions = Vec::new();
     ui.push_id(id, |ui| {
+        if state.interaction.is_none() {
+            state.interaction_form = InteractionForm::default();
+        }
         header(ui, state, &translate, &mut actions);
+        if let Some(request) = &state.interaction {
+            if let Some(action) = interaction::show(ui, request, &mut state.interaction_form, &translate) {
+                actions.push(action);
+            }
+            return;
+        }
         if state.settings_open {
             egui::ScrollArea::vertical().id_salt("assistant_settings").show(ui, |ui| {
                 actions.extend(settings(ui, id.with("settings"), &mut state.settings, &translate));

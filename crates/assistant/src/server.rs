@@ -113,7 +113,15 @@ pub fn serve(mut input: impl Read + Send + 'static, mut output: impl Write) -> R
                     }
                 }
                 HostMessage::Command { id, name, args } => {
-                    let result = if name == "restart_state" {
+                    let result = if name == "interaction_pending" {
+                        let pending = session
+                            .state()
+                            .interaction
+                            .as_ref()
+                            .map(|pending| json!({"id":pending.id,"method":pending.method,"params":pending.params}));
+                        event(&mut output, Event::Result { id, result: Ok(pending.unwrap_or(Value::Null)) }, max)?;
+                        continue;
+                    } else if name == "restart_state" {
                         let state = session.state();
                         let safe = pending_turn.is_none()
                             && !state.busy
@@ -295,6 +303,10 @@ fn command(session: &mut Session, name: &str, args: Value) -> Result<(), String>
             session.stop();
             Ok(())
         }
+        "respond" => session.action(Action::Respond {
+            id: args.get("id").and_then(Value::as_u64).ok_or("give the pending interaction id")?,
+            response: args.get("response").cloned().ok_or("give the explicit response")?,
+        }),
         "new_chat" => session.action(Action::NewChat),
         "open_chat" => session.action(Action::OpenChat(args.as_str().ok_or("give a chat id")?.into())),
         "delete_chat" => session.action(Action::DeleteChat(args.as_str().ok_or("give a chat id")?.into())),

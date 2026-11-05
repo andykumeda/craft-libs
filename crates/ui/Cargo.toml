@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 craft-ai-core = { workspace = true }
+serde_json = { workspace = true }
 craft-fonts-build = { workspace = true }
 craft-i18n = { workspace = true }
 egui = { workspace = true }
@@ -59,7 +60,6 @@ screen-testing = ["dep:egui_kittest"]
 [dev-dependencies]
 # serde: the IME tests read events that only the suite's egui fork has from JSON.
 egui = { workspace = true, features = ["default_fonts", "serde"] }
-serde_json = "1"
 egui_extras = { version = "0.37", default-features = false, features = ["svg"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 

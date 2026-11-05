@@ -17,7 +17,7 @@ use craft_ai_core::{
     AiError, AppId, Auth, Binding, Connection, ConnectionDraft, ConnectionId, KeyChange, ModelId, ModelInfo, Prepared, SecretRef, SecretString,
     StoreFile,
 };
-use craft_ai_native::codex::{CodexOptions, CodexProvider};
+use craft_ai_native::codex::{CodexOptions, CodexProvider, InteractionHandler, validate_interaction_response};
 use craft_ai_native::secrets::{KeyringStore, SecretStore};
 use craft_ai_native::storage::{HistoryStore, SharedStore};
 use craft_ai_native::{Cancellation, ChatProvider, HttpProvider, ModelRequest, TurnEvent, TurnRequest, resolve_choice, run_turn};
@@ -43,10 +43,45 @@ pub(super) struct Native {
 struct Turn {
     events: mpsc::Receiver<WorkerEvent>,
     calls: mpsc::Receiver<Pending>,
+    interactions: mpsc::Receiver<PendingInteraction>,
+    pending_interaction: Option<PendingInteraction>,
     cancel: Cancellation,
     fresh_text: bool,
     terminal: bool,
     pending_activity: Vec<(String, usize)>,
+}
+
+struct PendingInteraction {
+    id: u64,
+    method: String,
+    params: Value,
+    reply: mpsc::SyncSender<Result<Value, AiError>>,
+}
+
+static NEXT_INTERACTION: AtomicU64 = AtomicU64::new(1);
+
+fn interaction_handler(sender: mpsc::SyncSender<PendingInteraction>, wake: egui::Context) -> Arc<InteractionHandler> {
+    Arc::new(move |method, params, cancel| {
+        cancel.check()?;
+        let id = NEXT_INTERACTION
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .map_err(|_| AiError::invalid("Codex request identifiers were exhausted."))?;
+        let (reply, receive) = mpsc::sync_channel(1);
+        sender
+            .try_send(PendingInteraction { id, method: method.to_owned(), params: params.clone(), reply })
+            .map_err(|_| AiError::invalid("The Codex interaction client is unavailable; no permission was granted."))?;
+        wake.request_repaint();
+        loop {
+            cancel.check()?;
+            match receive.recv_timeout(Duration::from_millis(50)) {
+                Ok(response) => return response,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(AiError::invalid("The Codex interaction was dismissed; no permission was granted."));
+                }
+            }
+        }
+    })
 }
 
 impl Native {
@@ -192,9 +227,32 @@ impl ChatProvider for Providers {
 }
 
 pub(super) fn action(app: &mut Session, requested: Action) -> Result<(), String> {
+    if let Action::Respond { id, response } = requested {
+        let limit = app
+            .assistant
+            .native
+            .effective_config
+            .as_ref()
+            .map_or_else(|| RuntimeConfig::default().max_tool_arguments_bytes, |config| config.max_tool_arguments_bytes);
+        if serde_json::to_vec(&response).map_err(|_| "Invalid Codex response.")?.len() > limit {
+            return Err("The Codex response exceeds the configured byte limit; shorten it before submitting.".into());
+        }
+        let turn = app.assistant.native.turn.as_mut().ok_or("There is no pending Codex interaction.")?;
+        turn.cancel.check().map_err(fail)?;
+        let pending = turn
+            .pending_interaction
+            .as_ref()
+            .filter(|pending| pending.id == id)
+            .ok_or("This Codex interaction is no longer pending; no response was replayed.")?;
+        validate_interaction_response(&pending.method, &pending.params, &response).map_err(fail)?;
+        let pending = turn.pending_interaction.take().ok_or("The Codex request is no longer pending.")?;
+        app.assistant.widget.interaction = None;
+        return pending.reply.try_send(Ok(response)).map_err(|_| "The Codex interaction is no longer waiting; no response was replayed.".into());
+    }
     ensure_loaded(app);
     if matches!(requested, Action::Stop) {
         app.assistant.native.cancel();
+        app.assistant.widget.interaction = None;
         app.assistant.widget.status = Some(tr!(app, "Stopping; completed edits remain undoable."));
         return Ok(());
     }
@@ -291,6 +349,7 @@ fn send(app: &mut Session, root: PathBuf, prompt: String) -> Result<(), String> 
     }
     let (events_tx, events) = mpsc::sync_channel(128);
     let (call_tx, calls) = mpsc::channel();
+    let (interaction_tx, interactions) = mpsc::sync_channel(1);
     let cancel = Cancellation::new();
     let worker_cancel = cancel.clone();
     let thread_messages = messages.clone();
@@ -298,7 +357,7 @@ fn send(app: &mut Session, root: PathBuf, prompt: String) -> Result<(), String> 
     let target = app.target.clone();
     let tools = app.tools.clone();
     let initial_read = app.initial_read.clone();
-    let codex = app.assistant.native.codex_for_turn(&root);
+    let codex = app.assistant.native.codex_for_turn(&root).with_interaction(interaction_handler(interaction_tx, wake.clone()));
     std::thread::Builder::new()
         .name("craft-assistant".into())
         .spawn(move || {
@@ -384,7 +443,16 @@ fn send(app: &mut Session, root: PathBuf, prompt: String) -> Result<(), String> 
     app.assistant.widget.error = None;
     app.assistant.widget.busy = true;
     app.assistant.widget.status = Some(tr!(app, "Connecting…"));
-    app.assistant.native.turn = Some(Turn { events, calls, cancel, fresh_text: true, terminal: false, pending_activity: Vec::new() });
+    app.assistant.native.turn = Some(Turn {
+        events,
+        calls,
+        interactions,
+        pending_interaction: None,
+        cancel,
+        fresh_text: true,
+        terminal: false,
+        pending_activity: Vec::new(),
+    });
     Ok(())
 }
 
@@ -626,9 +694,8 @@ fn refresh_codex(store: &SharedStore, cancel: &Cancellation) -> Result<Update, S
     let provider = CodexProvider::new(CodexOptions::in_shared_root(store.root()));
     let config = store.config().map_err(fail)?;
     if !provider.signed_in(&config, cancel).map_err(fail)? {
-        return Ok(Update::Notice("Sign into the Craft Codex account first.".into()));
+        return Ok(Update::Notice("Sign into the selected Codex profile first.".into()));
     }
-    provider.verify_isolation(&config, cancel).map_err(fail)?;
     let mut connection = codex_connection()?;
     connection.models = provider.models(&connection, &config, cancel).map_err(fail)?;
     save_connection(store, Prepared { connection, key: KeyChange::Keep }, &KeyringStore).map(|change| Update::Store(change.store))
@@ -637,6 +704,9 @@ fn refresh_codex(store: &SharedStore, cancel: &Cancellation) -> Result<Update, S
 fn login(store: &SharedStore, sender: &mpsc::SyncSender<Result<Update, String>>, cancel: &Cancellation) -> Result<Update, String> {
     let provider = CodexProvider::new(CodexOptions::in_shared_root(store.root()));
     let config = store.config().map_err(fail)?;
+    if provider.signed_in(&config, cancel).map_err(fail)? {
+        return refresh_codex(store, cancel);
+    }
     let mut session = provider.start_login(&config, cancel).map_err(fail)?;
     let _ = sender.send(Ok(Update::Login { url: session.authorization_url.clone(), code: session.user_code.clone() }));
     loop {
@@ -652,6 +722,15 @@ fn login(store: &SharedStore, sender: &mpsc::SyncSender<Result<Update, String>>,
 pub(super) fn poll(app: &mut Session, ctx: &egui::Context) {
     poll_job(app, ctx);
     let Some(mut turn) = app.assistant.native.turn.take() else { return };
+    while let Ok(pending) = turn.interactions.try_recv() {
+        if turn.cancel.is_cancelled() || turn.pending_interaction.is_some() {
+            let _ = pending.reply.try_send(Err(AiError::cancelled()));
+            continue;
+        }
+        app.assistant.widget.interaction =
+            Some(craft_ui::assistant::Interaction { id: pending.id, method: pending.method.clone(), params: pending.params.clone() });
+        turn.pending_interaction = Some(pending);
+    }
     while let Ok(pending) = turn.calls.try_recv() {
         app.pending.push(pending);
     }
@@ -669,6 +748,7 @@ pub(super) fn poll(app: &mut Session, ctx: &egui::Context) {
         }
     }
     if disconnected {
+        app.assistant.widget.interaction = None;
         if !turn.terminal {
             app.assistant.widget.error = Some(
                 "The assistant worker stopped unexpectedly. Inspect completed edits before starting another request; no action will be replayed."
@@ -752,6 +832,7 @@ fn set_store(app: &mut Session, store: StoreFile) {
             .unwrap_or_else(|error| format!("{}: {error}", tr!(app, "Unavailable")));
         app.assistant.widget.chat_route = route.clone();
         app.assistant.widget.control_route = route;
+        app.assistant.widget.settings.codex_profile = CodexOptions::from_environment().home.display().to_string();
         app.assistant.widget.settings.codex_status = if store.connections.iter().any(|connection| connection.provider == "codex") {
             tr!(app, "Codex connection saved.")
         } else {
@@ -919,5 +1000,68 @@ mod refresh_tests {
         assert!(!app.assistant.widget.history.iter().any(|entry| entry.id == conversation.id));
         refresh_settings(&mut app).unwrap();
         assert!(app.assistant.native.job.is_none());
+    }
+}
+
+#[cfg(test)]
+mod interaction_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn only_current_valid_explicit_response_resolves_a_request_once() {
+        let mut app = Session::new(AppId::new("interaction-test").unwrap(), egui::Context::default());
+        app.assistant.native.initialized = true;
+        let (_events, events) = mpsc::sync_channel(1);
+        let (_calls, calls) = mpsc::channel();
+        let (_requests, interactions) = mpsc::sync_channel(1);
+        let (reply, response) = mpsc::sync_channel(1);
+        let cancel = Cancellation::new();
+        app.assistant.native.turn = Some(Turn {
+            events,
+            calls,
+            interactions,
+            pending_interaction: Some(PendingInteraction {
+                id: 17,
+                method: "item/commandExecution/requestApproval".into(),
+                params: json!({}),
+                reply,
+            }),
+            cancel: cancel.clone(),
+            fresh_text: true,
+            terminal: false,
+            pending_activity: vec![],
+        });
+        let respond = |id, decision: &str| Action::Respond { id, response: json!({"decision":decision}) };
+        assert!(action(&mut app, respond(16, "accept")).is_err());
+        assert!(response.try_recv().is_err());
+        assert!(action(&mut app, respond(17, "invalid")).is_err());
+        assert!(response.try_recv().is_err());
+        app.assistant.native.effective_config = Some(RuntimeConfig { max_tool_arguments_bytes: 256, ..RuntimeConfig::default() });
+        assert!(action(&mut app, Action::Respond { id: 17, response: json!({"decision":"x".repeat(1024)}) }).unwrap_err().contains("byte limit"));
+        assert!(response.try_recv().is_err());
+        action(&mut app, respond(17, "decline")).unwrap();
+        assert_eq!(response.recv().unwrap().unwrap(), json!({"decision":"decline"}));
+        assert!(action(&mut app, respond(17, "accept")).is_err());
+        let (reply, response) = mpsc::sync_channel(1);
+        app.assistant.native.turn.as_mut().unwrap().pending_interaction =
+            Some(PendingInteraction { id: 18, method: "item/commandExecution/requestApproval".into(), params: json!({}), reply });
+        cancel.cancel();
+        assert!(action(&mut app, respond(18, "accept")).is_err());
+        assert!(response.try_recv().is_err());
+    }
+
+    #[test]
+    fn waiting_for_a_user_response_is_cancelable_without_a_grant() {
+        let (sender, requests) = mpsc::sync_channel(1);
+        let handler = interaction_handler(sender, egui::Context::default());
+        let cancel = Cancellation::new();
+        let worker_cancel = cancel.clone();
+        let worker = std::thread::spawn(move || handler("item/fileChange/requestApproval", &json!({}), &worker_cancel));
+        let pending = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(pending.id > 0);
+        cancel.cancel();
+        assert_eq!(worker.join().unwrap().unwrap_err().kind, craft_ai_core::ErrorKind::Cancelled);
+        assert!(pending.reply.try_send(Ok(json!({"decision":"accept"}))).is_err());
     }
 }

@@ -11,11 +11,11 @@ cargo build -p craft-assistant --features runtime
 cargo test -p craft-assistant --features runtime -j 2
 ```
 
-Release builds must provide the pinned optional craft-fonts build input for supported interface scripts (`CRAFT_FONTS_DIR`, with `CRAFT_FONTS_REQUIRED=1`); fonts never enter this repository. Default dependency fonts and their licenses are recorded in the root ATTRIBUTION.md and NOTICE. This crate does not embed proprietary system fonts. Without the optional input, unsupported scripts may show missing glyphs. The helper embeds the licensed faces from the pinned manifest, including CJK faces, so its standalone UI does not depend on fonts in the host app.
+Release builds must provide the pinned optional craft-fonts build input for supported interface scripts (`CRAFT_FONTS_DIR`, with `CRAFT_FONTS_REQUIRED=1`); fonts never enter this repository. Default dependency fonts and their licenses are recorded in the root ATTRIBUTION.md and NOTICE. This crate does not embed proprietary system fonts. Without the optional input, unsupported scripts may show missing glyphs. The helper embeds licensed faces from the pinned main manifest and, on native builds, `fonts/simplified-chinese-manifest.txt`. It excludes Source Sans 3, Source Serif 4, Source Han Sans/Serif and every Noto Sans/Serif/Mono CJK family to satisfy the strictest host policy. Permitted BIZ Japanese faces remain, and LXGW WenKai Lite supplies Simplified Chinese without depending on host fonts. Required native builds fail if the reviewed Simplified Chinese manifest is absent. Optional builds with older main-only checkouts warn, retain permitted main faces, and do not substitute a prohibited Chinese face.
 
 See [installation and release configuration](../../docs/assistant-install.md) for shared `component.json`, publisher identity, exact platform asset selection, limits, signed `.app` packaging and rollback. `CRAFT_AI_CONFIG_DIR` overrides the existing suite settings root. Missing, newer or invalid configuration fails explicitly without choosing another source/provider.
 
-Debug app builds alone allow the explicit absolute `CRAFT_ASSISTANT_EXECUTABLE` path for isolated development. This bypass is absent from shipping release builds. Set `CRAFT_AI_CONFIG_DIR` to an isolated temporary directory when testing; no test should use personal chats or credentials. The helper accepts only `--stdio`; its stdout is exclusively framed protocol data.
+Debug app builds alone allow the explicit absolute `CRAFT_ASSISTANT_EXECUTABLE` path for isolated development. This bypass is absent from shipping release builds. Set `CRAFT_AI_CONFIG_DIR` and `CODEX_HOME` to isolated temporary directories when testing; no automated test should use personal chats or credentials. The helper accepts only `--stdio`; its stdout is exclusively framed protocol data.
 
 ## Lifecycle and updates
 
@@ -56,3 +56,19 @@ Unchanged settings keep the composer model picker enabled; explicit Reload setti
 actual shared-file changes retain the existing validated reload path.
 
 Tool calls, results and activity details remain in assistant state but are hidden from the conversation display.
+
+
+## Normal Codex environment and approvals
+
+Helper0.1.5 source uses the current Codex profile/account and its enabled skills, plugins,
+MCP servers and configured permissions. `CODEX_HOME` selects the profile, otherwise Codex's
+normal `~/.codex` applies. HOME-based skills and the inherited launch working directory remain
+available. Existing Codex configuration is not copied or overwritten. Settings identifies this
+shared profile behavior; an existing ChatGPT sign-in is reused.
+
+The pane shows native command/file/permission requests and input/MCP forms with explicit
+responses and Stop. There are no automatic grants. Compatible hosts keep bridge1; helper-owned
+rendering handles the new UI. Private-pipe automation can query `interaction_pending` and send
+`respond` with the exact pending id and response. Never log request parameters or user answers.
+App-engine document calls preserve Undo; external native shell/plugin changes follow Codex
+policy and are not part of app Undo. See the current [native contract](../../docs/assistant-native-services.md#codex-adapter-helper-015-source).
