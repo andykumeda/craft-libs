@@ -59,6 +59,8 @@ Copy only the installer script and package archive/receipt/installer executable 
 host; do not copy user profiles, credentials or conversations. Installed-path rendering and
 per-host activation evidence remain separate acceptance checks.
 
-GitHub rejected the first two existing-fork pushes with an Internal Server Error. Read-only
-remote verification showed the previous source ref unchanged; source commits remain local
-until a successful explicit push is recorded. This does not imply a public release.
+GitHub temporarily rejected the first two existing-fork pushes with an Internal Server Error;
+read-only verification confirmed the previous remote source was unchanged. A later push
+succeeded: sourcef2295dd and qualificationda1a96e were published to the existing
+`fork/codex/independent-assistant` branch, and remote SHA da1a96eab8e583cab0d11e0facddb0f13791ae45
+was independently verified. No public release was created.
