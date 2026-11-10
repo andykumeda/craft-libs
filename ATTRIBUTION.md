@@ -94,4 +94,4 @@ no font binary is copied into this repository. All source paths below are pinned
 
 Additional optional assistant UI faces are embedded only from the shared `CRAFT_FONTS_DIR`
 build input using craft-fonts-build; their provenance and licenses belong to the pinned
-craft-fonts manifest. Release packages must include the notices for every selected face.
+craft-fonts manifests. The native helper also selects `fonts/simplified-chinese-manifest.txt` for OFL-licensed LXGW WenKai Lite; it retains the permitted BIZ Japanese faces and excludes Source Sans 3, Source Serif 4, Source Han and all Noto CJK families for cross-app policy compatibility. Release packages must include the notices for every selected face.

@@ -24,6 +24,10 @@ pub struct SettingsState {
     pub busy: bool,
     pub status: Option<String>,
     pub error: Option<String>,
+    /// Effective normal Codex profile path; transient display only.
+    pub codex_profile: String,
+    /// Selected workspace path, or an actionable workspace configuration error.
+    pub codex_workspace: String,
     pub codex_status: String,
 }
 
@@ -306,7 +310,13 @@ fn connections(ui: &mut Ui, state: &mut SettingsState, tr: &impl Fn(&str) -> Str
 
 fn codex(ui: &mut Ui, state: &SettingsState, tr: &impl Fn(&str) -> String, actions: &mut Vec<Action>) {
     ui.strong(tr("OpenAI subscription (Codex)"));
-    ui.small(tr("Uses your OpenAI subscription through Codex, with a separate Craft sign-in and configuration."));
+    ui.small(tr("Uses your current Codex profile, account, skills, plugins and configured permissions. Requests needing your approval appear here."));
+    if !state.codex_profile.is_empty() {
+        ui.label(format!("{}: {}", tr("Codex profile"), state.codex_profile));
+    }
+    if !state.codex_workspace.is_empty() {
+        ui.label(format!("{}: {}", tr("Codex workspace"), state.codex_workspace));
+    }
     if !state.codex_status.is_empty() {
         ui.label(&state.codex_status);
     }

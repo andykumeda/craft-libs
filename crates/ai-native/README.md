@@ -92,8 +92,24 @@ than silently dropping context. Start a new chat or explicitly increase the limi
 `cargo test -p craft-ai-core -p craft-ai-native` covers contract compatibility, two independent
 synthetic app catalogs, role routing, cancellation, duplicate-call prevention, fragmented
 UTF-8/SSE/tool arguments, response limits, credential handling, and storage behavior. No
-production credentials or private documents are needed. Live Codex containment, real provider
-inference, and platform credential stores require separate acceptance evidence.
+production credentials or private documents are needed. Real Codex skill/plugin execution, native approval interaction, provider inference and platform
+credential stores require separate acceptance evidence.
 
-Storage locations, Codex setup, isolation behavior and live acceptance evidence are recorded in
+Storage locations, normal Codex profile setup, approval behavior and live acceptance evidence are recorded in
 [Assistant native services](../../docs/assistant-native-services.md).
+
+
+Codex uses the normal selected profile (`CODEX_HOME`, otherwise `~/.codex`), inherited HOME and
+configured skills/plugins/MCP/permissions. Supply `CodexProvider::with_interaction` to handle
+native approvals, questions and MCP elicitations explicitly; absence of an interactive client
+fails without granting permissions. Craft document tools remain host-owned and undoable; native
+shell/plugin changes follow Codex policy and are outside app Undo. This replaces the earlier
+Craft-only isolated Codex profile; no profile/configuration is copied or rewritten by startup.
+
+Native Codex workspaces do not inherit the caller's current directory. `CRAFT_CODEX_WORKSPACE`
+takes precedence over `CodexProvider::with_workspace`; otherwise the shared settings root's
+`workspaces/codex` directory is used. Helper hosts pass the stable app-specific directory from
+`workspace_for_app`. Absolute non-root project/output paths are required; parent traversal,
+application bundles and symlink targets resolving there are refused. Created directories are
+private on Unix, existing permissions are preserved, and outputs are retained. This does not
+change normal CODEX_HOME/HOME configuration, account or skill/plugin discovery.

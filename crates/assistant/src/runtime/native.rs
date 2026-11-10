@@ -17,7 +17,7 @@ use craft_ai_core::{
     AiError, AppId, Auth, Binding, Connection, ConnectionDraft, ConnectionId, KeyChange, ModelId, ModelInfo, Prepared, SecretRef, SecretString,
     StoreFile,
 };
-use craft_ai_native::codex::{CodexOptions, CodexProvider};
+use craft_ai_native::codex::{CodexOptions, CodexProvider, InteractionHandler, validate_interaction_response, workspace_for_app};
 use craft_ai_native::secrets::{KeyringStore, SecretStore};
 use craft_ai_native::storage::{HistoryStore, SharedStore};
 use craft_ai_native::{Cancellation, ChatProvider, HttpProvider, ModelRequest, TurnEvent, TurnRequest, resolve_choice, run_turn};
@@ -30,6 +30,7 @@ use super::host::{McpHost, Pending};
 #[derive(Default)]
 pub(super) struct Native {
     initialized: bool,
+    settings_revision: Vec<Option<(u64, std::time::SystemTime)>>,
     root: Option<PathBuf>,
     codex_template: Option<(PathBuf, Arc<CodexProvider>)>,
     conversation: Option<Conversation>,
@@ -42,23 +43,58 @@ pub(super) struct Native {
 struct Turn {
     events: mpsc::Receiver<WorkerEvent>,
     calls: mpsc::Receiver<Pending>,
+    interactions: mpsc::Receiver<PendingInteraction>,
+    pending_interaction: Option<PendingInteraction>,
     cancel: Cancellation,
     fresh_text: bool,
     terminal: bool,
     pending_activity: Vec<(String, usize)>,
 }
 
+struct PendingInteraction {
+    id: u64,
+    method: String,
+    params: Value,
+    reply: mpsc::SyncSender<Result<Value, AiError>>,
+}
+
+static NEXT_INTERACTION: AtomicU64 = AtomicU64::new(1);
+
+fn interaction_handler(sender: mpsc::SyncSender<PendingInteraction>, wake: egui::Context) -> Arc<InteractionHandler> {
+    Arc::new(move |method, params, cancel| {
+        cancel.check()?;
+        let id = NEXT_INTERACTION
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .map_err(|_| AiError::invalid("Codex request identifiers were exhausted."))?;
+        let (reply, receive) = mpsc::sync_channel(1);
+        sender
+            .try_send(PendingInteraction { id, method: method.to_owned(), params: params.clone(), reply })
+            .map_err(|_| AiError::invalid("The Codex interaction client is unavailable; no permission was granted."))?;
+        wake.request_repaint();
+        loop {
+            cancel.check()?;
+            match receive.recv_timeout(Duration::from_millis(50)) {
+                Ok(response) => return response,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(AiError::invalid("The Codex interaction was dismissed; no permission was granted."));
+                }
+            }
+        }
+    })
+}
+
 impl Native {
-    fn codex_for_turn(&mut self, root: &std::path::Path) -> CodexProvider {
+    fn codex_for_turn(&mut self, root: &std::path::Path, app: &AppId) -> Result<CodexProvider, String> {
         if let Some((cached_root, template)) = &self.codex_template
             && cached_root == root
         {
-            return template.fork_turn();
+            return Ok(template.fork_turn());
         }
-        let template = Arc::new(CodexProvider::new(CodexOptions::in_shared_root(root)));
+        let template = Arc::new(codex_provider(root, app)?);
         let turn = template.fork_turn();
         self.codex_template = Some((root.to_owned(), template));
-        turn
+        Ok(turn)
     }
 
     fn invalidate_codex_on(&mut self, action: &Action) {
@@ -82,7 +118,7 @@ enum WorkerEvent {
 }
 
 enum Update {
-    Loaded { root: PathBuf, store: StoreFile, config: RuntimeConfig, history: Vec<ChatSummary> },
+    Loaded { root: PathBuf, store: StoreFile, config: RuntimeConfig, history: Vec<ChatSummary>, revision: Vec<Option<(u64, std::time::SystemTime)>> },
     Store(StoreFile),
     ConnectionSaved { change: ConnectionChange, id: ConnectionId },
     ConnectionDeleted { change: ConnectionChange, id: ConnectionId },
@@ -139,9 +175,10 @@ pub(super) fn ensure_loaded(app: &mut Session) {
     if let Err(error) = job(app, move |sender, _| {
         let result = (|| {
             let root = SharedStore::default_root().map_err(fail)?;
+            let revision = settings_revision(&root, &app_id)?;
             let store = SharedStore::new(root.clone());
             let history = summaries(&history(&store, &app_id)?)?;
-            Ok(Update::Loaded { root, store: store.load().map_err(fail)?, config: store.config().map_err(fail)?, history })
+            Ok(Update::Loaded { root, store: store.load().map_err(fail)?, config: store.config().map_err(fail)?, history, revision })
         })();
         let _ = sender.send(result);
     }) {
@@ -149,13 +186,40 @@ pub(super) fn ensure_loaded(app: &mut Session) {
     }
 }
 
+fn settings_revision(root: &std::path::Path, app: &AppId) -> Result<Vec<Option<(u64, std::time::SystemTime)>>, String> {
+    let history = HistoryStore::new(root, app).map_err(fail)?;
+    // shortcut: metadata-preserving external edits need Reload settings; use content fingerprints if that workflow is supported.
+    [root.join("connections.json"), root.join("runtime.json"), history.root().to_owned()]
+        .into_iter()
+        .map(|path| match std::fs::metadata(path) {
+            Ok(metadata) => Ok(Some((metadata.len(), metadata.modified().map_err(fail)?))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(fail(error)),
+        })
+        .collect()
+}
+
+pub(super) fn refresh_settings(app: &mut Session) -> Result<(), String> {
+    let Some(root) = &app.assistant.native.root else { return Ok(()) };
+    // Unchanged idle settings must not disable the model picker on every polling tick.
+    if settings_revision(root, &app.app_id)? == app.assistant.native.settings_revision {
+        return Ok(());
+    }
+    action(app, Action::ReloadSettings)
+}
+
+fn codex_provider(root: &std::path::Path, app: &AppId) -> Result<CodexProvider, String> {
+    let workspace = workspace_for_app(root, app).map_err(fail)?;
+    Ok(CodexProvider::new(CodexOptions::from_environment()).with_workspace(workspace))
+}
+
 struct Providers {
     http: HttpProvider,
     codex: CodexProvider,
 }
 impl Providers {
-    fn new(root: &std::path::Path, secrets: Arc<dyn SecretStore>) -> Self {
-        Self { http: HttpProvider::new(secrets), codex: CodexProvider::new(CodexOptions::in_shared_root(root)) }
+    fn new(root: &std::path::Path, app: &AppId, secrets: Arc<dyn SecretStore>) -> Result<Self, String> {
+        Ok(Self { http: HttpProvider::new(secrets), codex: codex_provider(root, app)? })
     }
 }
 impl ChatProvider for Providers {
@@ -168,9 +232,32 @@ impl ChatProvider for Providers {
 }
 
 pub(super) fn action(app: &mut Session, requested: Action) -> Result<(), String> {
+    if let Action::Respond { id, response } = requested {
+        let limit = app
+            .assistant
+            .native
+            .effective_config
+            .as_ref()
+            .map_or_else(|| RuntimeConfig::default().max_tool_arguments_bytes, |config| config.max_tool_arguments_bytes);
+        if serde_json::to_vec(&response).map_err(|_| "Invalid Codex response.")?.len() > limit {
+            return Err("The Codex response exceeds the configured byte limit; shorten it before submitting.".into());
+        }
+        let turn = app.assistant.native.turn.as_mut().ok_or("There is no pending Codex interaction.")?;
+        turn.cancel.check().map_err(fail)?;
+        let pending = turn
+            .pending_interaction
+            .as_ref()
+            .filter(|pending| pending.id == id)
+            .ok_or("This Codex interaction is no longer pending; no response was replayed.")?;
+        validate_interaction_response(&pending.method, &pending.params, &response).map_err(fail)?;
+        let pending = turn.pending_interaction.take().ok_or("The Codex request is no longer pending.")?;
+        app.assistant.widget.interaction = None;
+        return pending.reply.try_send(Ok(response)).map_err(|_| "The Codex interaction is no longer waiting; no response was replayed.".into());
+    }
     ensure_loaded(app);
     if matches!(requested, Action::Stop) {
         app.assistant.native.cancel();
+        app.assistant.widget.interaction = None;
         app.assistant.widget.status = Some(tr!(app, "Stopping; completed edits remain undoable."));
         return Ok(());
     }
@@ -218,7 +305,7 @@ pub(super) fn action(app: &mut Session, requested: Action) -> Result<(), String>
     job(app, move |sender, cancel| {
         let store = SharedStore::new(root);
         if matches!(requested, Action::BeginCodexSignIn) {
-            let result = login(&store, &sender, &cancel);
+            let result = login(&store, &app_id, &sender, &cancel);
             let _ = sender.send(result);
         } else {
             let _ = sender.send(settings_action(&store, &app_id, requested, &cancel));
@@ -267,6 +354,7 @@ fn send(app: &mut Session, root: PathBuf, prompt: String) -> Result<(), String> 
     }
     let (events_tx, events) = mpsc::sync_channel(128);
     let (call_tx, calls) = mpsc::channel();
+    let (interaction_tx, interactions) = mpsc::sync_channel(1);
     let cancel = Cancellation::new();
     let worker_cancel = cancel.clone();
     let thread_messages = messages.clone();
@@ -274,7 +362,7 @@ fn send(app: &mut Session, root: PathBuf, prompt: String) -> Result<(), String> 
     let target = app.target.clone();
     let tools = app.tools.clone();
     let initial_read = app.initial_read.clone();
-    let codex = app.assistant.native.codex_for_turn(&root);
+    let codex = app.assistant.native.codex_for_turn(&root, &app_id)?.with_interaction(interaction_handler(interaction_tx, wake.clone()));
     std::thread::Builder::new()
         .name("craft-assistant".into())
         .spawn(move || {
@@ -360,7 +448,16 @@ fn send(app: &mut Session, root: PathBuf, prompt: String) -> Result<(), String> 
     app.assistant.widget.error = None;
     app.assistant.widget.busy = true;
     app.assistant.widget.status = Some(tr!(app, "Connecting…"));
-    app.assistant.native.turn = Some(Turn { events, calls, cancel, fresh_text: true, terminal: false, pending_activity: Vec::new() });
+    app.assistant.native.turn = Some(Turn {
+        events,
+        calls,
+        interactions,
+        pending_interaction: None,
+        cancel,
+        fresh_text: true,
+        terminal: false,
+        pending_activity: Vec::new(),
+    });
     Ok(())
 }
 
@@ -384,8 +481,8 @@ fn settings_action(store: &SharedStore, app: &AppId, requested: Action, cancel: 
             let id = prepared.connection.id.clone();
             save_connection(store, prepared, &KeyringStore).map(|change| Update::ConnectionSaved { change, id })
         }
-        Action::DiscoverModels(draft) | Action::TestConnection(draft) => discover(store, draft, None, cancel),
-        Action::VerifyModel { connection, model } => discover(store, connection, Some(model), cancel),
+        Action::DiscoverModels(draft) | Action::TestConnection(draft) => discover(store, app, draft, None, cancel),
+        Action::VerifyModel { connection, model } => discover(store, app, connection, Some(model), cancel),
         Action::SaveBinding { role, connection, model, app_override, manual_tools } => {
             let connection = ConnectionId::new(connection).map_err(fail)?;
             let model = ModelId::new(model).map_err(fail)?;
@@ -430,7 +527,7 @@ fn settings_action(store: &SharedStore, app: &AppId, requested: Action, cancel: 
             history(store, app)?.delete(&id).map_err(fail)?;
             Ok(Update::Deleted(id))
         }
-        Action::RefreshCodex => refresh_codex(store, cancel),
+        Action::RefreshCodex => refresh_codex(store, app, cancel),
         _ => Err("this assistant action is not a settings operation".into()),
     }
 }
@@ -558,13 +655,13 @@ impl SecretStore for DraftSecrets {
     }
 }
 
-fn discover(store: &SharedStore, mut draft: ConnectionDraft, verify: Option<String>, cancel: &Cancellation) -> Result<Update, String> {
+fn discover(store: &SharedStore, app: &AppId, mut draft: ConnectionDraft, verify: Option<String>, cancel: &Cancellation) -> Result<Update, String> {
     let prepared = draft.prepare(&store.load().map_err(fail)?.connections).map_err(fail)?;
     let temporary = match prepared.key {
         KeyChange::Set(value) => prepared.connection.auth.secret_ref().map(|reference| (reference.clone(), value)),
         _ => None,
     };
-    let providers = Providers::new(store.root(), Arc::new(DraftSecrets { temporary }));
+    let providers = Providers::new(store.root(), app, Arc::new(DraftSecrets { temporary }))?;
     let config = store.config().map_err(fail)?;
     let models = if let Some(model) = verify {
         let id = ModelId::new(model).map_err(fail)?;
@@ -598,27 +695,29 @@ fn codex_connection() -> Result<Connection, String> {
     })
 }
 
-fn refresh_codex(store: &SharedStore, cancel: &Cancellation) -> Result<Update, String> {
-    let provider = CodexProvider::new(CodexOptions::in_shared_root(store.root()));
+fn refresh_codex(store: &SharedStore, app: &AppId, cancel: &Cancellation) -> Result<Update, String> {
+    let provider = codex_provider(store.root(), app)?;
     let config = store.config().map_err(fail)?;
     if !provider.signed_in(&config, cancel).map_err(fail)? {
-        return Ok(Update::Notice("Sign into the Craft Codex account first.".into()));
+        return Ok(Update::Notice("Sign into the selected Codex profile first.".into()));
     }
-    provider.verify_isolation(&config, cancel).map_err(fail)?;
     let mut connection = codex_connection()?;
     connection.models = provider.models(&connection, &config, cancel).map_err(fail)?;
     save_connection(store, Prepared { connection, key: KeyChange::Keep }, &KeyringStore).map(|change| Update::Store(change.store))
 }
 
-fn login(store: &SharedStore, sender: &mpsc::SyncSender<Result<Update, String>>, cancel: &Cancellation) -> Result<Update, String> {
-    let provider = CodexProvider::new(CodexOptions::in_shared_root(store.root()));
+fn login(store: &SharedStore, app: &AppId, sender: &mpsc::SyncSender<Result<Update, String>>, cancel: &Cancellation) -> Result<Update, String> {
+    let provider = codex_provider(store.root(), app)?;
     let config = store.config().map_err(fail)?;
+    if provider.signed_in(&config, cancel).map_err(fail)? {
+        return refresh_codex(store, app, cancel);
+    }
     let mut session = provider.start_login(&config, cancel).map_err(fail)?;
     let _ = sender.send(Ok(Update::Login { url: session.authorization_url.clone(), code: session.user_code.clone() }));
     loop {
         cancel.check().map_err(fail)?;
         match session.poll(cancel).map_err(fail)? {
-            Some(true) => return refresh_codex(store, cancel),
+            Some(true) => return refresh_codex(store, app, cancel),
             Some(false) => return Err("Codex sign-in was not completed".into()),
             None => std::thread::sleep(Duration::from_millis(100)),
         }
@@ -628,6 +727,15 @@ fn login(store: &SharedStore, sender: &mpsc::SyncSender<Result<Update, String>>,
 pub(super) fn poll(app: &mut Session, ctx: &egui::Context) {
     poll_job(app, ctx);
     let Some(mut turn) = app.assistant.native.turn.take() else { return };
+    while let Ok(pending) = turn.interactions.try_recv() {
+        if turn.cancel.is_cancelled() || turn.pending_interaction.is_some() {
+            let _ = pending.reply.try_send(Err(AiError::cancelled()));
+            continue;
+        }
+        app.assistant.widget.interaction =
+            Some(craft_ui::assistant::Interaction { id: pending.id, method: pending.method.clone(), params: pending.params.clone() });
+        turn.pending_interaction = Some(pending);
+    }
     while let Ok(pending) = turn.calls.try_recv() {
         app.pending.push(pending);
     }
@@ -645,6 +753,7 @@ pub(super) fn poll(app: &mut Session, ctx: &egui::Context) {
         }
     }
     if disconnected {
+        app.assistant.widget.interaction = None;
         if !turn.terminal {
             app.assistant.widget.error = Some(
                 "The assistant worker stopped unexpectedly. Inspect completed edits before starting another request; no action will be replayed."
@@ -728,6 +837,17 @@ fn set_store(app: &mut Session, store: StoreFile) {
             .unwrap_or_else(|error| format!("{}: {error}", tr!(app, "Unavailable")));
         app.assistant.widget.chat_route = route.clone();
         app.assistant.widget.control_route = route;
+        app.assistant.widget.settings.codex_profile = CodexOptions::from_environment().home.display().to_string();
+        app.assistant.widget.settings.codex_workspace = app
+            .assistant
+            .native
+            .root
+            .as_ref()
+            .ok_or_else(|| "Assistant settings are still loading.".to_owned())
+            .and_then(|root| codex_provider(root, &id))
+            .and_then(|provider| provider.workspace().map_err(fail))
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|error| error);
         app.assistant.widget.settings.codex_status = if store.connections.iter().any(|connection| connection.provider == "codex") {
             tr!(app, "Codex connection saved.")
         } else {
@@ -742,7 +862,8 @@ fn poll_job(app: &mut Session, ctx: &egui::Context) {
     loop {
         match receiver.try_recv() {
             Ok(Ok(update)) => match update {
-                Update::Loaded { root, store, config, history } => {
+                Update::Loaded { root, store, config, history, revision } => {
+                    app.assistant.native.settings_revision = revision;
                     if app.assistant.native.root.as_ref() != Some(&root) {
                         app.assistant.native.codex_template = None;
                     }
@@ -813,5 +934,149 @@ fn poll_job(app: &mut Session, ctx: &egui::Context) {
                 break;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod refresh_tests {
+    use super::*;
+
+    #[test]
+    fn unchanged_settings_do_not_start_a_busy_reload() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_owned();
+        let mut app = Session::new(AppId::new("refresh-test").unwrap(), egui::Context::default());
+        app.assistant.native.initialized = true;
+        app.assistant.native.root = Some(root.clone());
+        app.assistant.native.settings_revision = settings_revision(&root, &app.app_id).unwrap();
+        for _ in 0..3 {
+            refresh_settings(&mut app).unwrap();
+            assert!(!app.assistant.widget.settings.busy);
+            assert!(app.assistant.native.job.is_none());
+        }
+        let before = settings_revision(&root, &app.app_id).unwrap();
+        std::fs::write(root.join("connections.json"), "{}").unwrap();
+        assert_ne!(settings_revision(&root, &app.app_id).unwrap(), before);
+        let before = settings_revision(&root, &app.app_id).unwrap();
+        std::fs::write(root.join("runtime.json"), "{}").unwrap();
+        assert_ne!(settings_revision(&root, &app.app_id).unwrap(), before);
+    }
+
+    #[test]
+    fn changed_settings_reload_and_apply_shared_configuration() {
+        const CHILD: &str = "CRAFT_REFRESH_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let temp = tempfile::tempdir().unwrap();
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "runtime::native::refresh_tests::changed_settings_reload_and_apply_shared_configuration", "--nocapture"])
+                .env(CHILD, "1")
+                .env("CRAFT_AI_CONFIG_DIR", temp.path())
+                .status()
+                .unwrap();
+            assert!(status.success());
+            return;
+        }
+        let ctx = egui::Context::default();
+        let mut app = Session::new(AppId::new("refresh-test").unwrap(), ctx);
+        let wait = |app: &mut Session| {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while app.assistant.native.job.is_some() {
+                assert!(std::time::Instant::now() < deadline);
+                app.poll();
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert!(app.assistant.widget.error.is_none(), "{:?}", app.assistant.widget.error);
+        };
+        app.poll();
+        wait(&mut app);
+        let store = SharedStore::new(SharedStore::default_root().unwrap());
+        let config = RuntimeConfig { request_timeout_secs: 181, ..RuntimeConfig::default() };
+        store.update_config(&config).unwrap();
+        refresh_settings(&mut app).unwrap();
+        assert!(app.assistant.widget.settings.busy);
+        wait(&mut app);
+        assert_eq!(app.assistant.native.effective_config, Some(config));
+        refresh_settings(&mut app).unwrap();
+        assert!(!app.assistant.widget.settings.busy);
+        assert!(app.assistant.native.job.is_none());
+        let history = history(&store, &app.app_id).unwrap();
+        let mut conversation = history.create("Created in another process").unwrap();
+        refresh_settings(&mut app).unwrap();
+        wait(&mut app);
+        assert!(app.assistant.widget.history.iter().any(|entry| entry.id == conversation.id));
+        conversation.title = "Saved in another process".into();
+        history.save(&conversation).unwrap();
+        refresh_settings(&mut app).unwrap();
+        wait(&mut app);
+        assert!(app.assistant.widget.history.iter().any(|entry| entry.id == conversation.id && entry.title == conversation.title));
+        history.delete(&conversation.id).unwrap();
+        refresh_settings(&mut app).unwrap();
+        wait(&mut app);
+        assert!(!app.assistant.widget.history.iter().any(|entry| entry.id == conversation.id));
+        refresh_settings(&mut app).unwrap();
+        assert!(app.assistant.native.job.is_none());
+    }
+}
+
+#[cfg(test)]
+mod interaction_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn only_current_valid_explicit_response_resolves_a_request_once() {
+        let mut app = Session::new(AppId::new("interaction-test").unwrap(), egui::Context::default());
+        app.assistant.native.initialized = true;
+        let (_events, events) = mpsc::sync_channel(1);
+        let (_calls, calls) = mpsc::channel();
+        let (_requests, interactions) = mpsc::sync_channel(1);
+        let (reply, response) = mpsc::sync_channel(1);
+        let cancel = Cancellation::new();
+        app.assistant.native.turn = Some(Turn {
+            events,
+            calls,
+            interactions,
+            pending_interaction: Some(PendingInteraction {
+                id: 17,
+                method: "item/commandExecution/requestApproval".into(),
+                params: json!({}),
+                reply,
+            }),
+            cancel: cancel.clone(),
+            fresh_text: true,
+            terminal: false,
+            pending_activity: vec![],
+        });
+        let respond = |id, decision: &str| Action::Respond { id, response: json!({"decision":decision}) };
+        assert!(action(&mut app, respond(16, "accept")).is_err());
+        assert!(response.try_recv().is_err());
+        assert!(action(&mut app, respond(17, "invalid")).is_err());
+        assert!(response.try_recv().is_err());
+        app.assistant.native.effective_config = Some(RuntimeConfig { max_tool_arguments_bytes: 256, ..RuntimeConfig::default() });
+        assert!(action(&mut app, Action::Respond { id: 17, response: json!({"decision":"x".repeat(1024)}) }).unwrap_err().contains("byte limit"));
+        assert!(response.try_recv().is_err());
+        action(&mut app, respond(17, "decline")).unwrap();
+        assert_eq!(response.recv().unwrap().unwrap(), json!({"decision":"decline"}));
+        assert!(action(&mut app, respond(17, "accept")).is_err());
+        let (reply, response) = mpsc::sync_channel(1);
+        app.assistant.native.turn.as_mut().unwrap().pending_interaction =
+            Some(PendingInteraction { id: 18, method: "item/commandExecution/requestApproval".into(), params: json!({}), reply });
+        cancel.cancel();
+        assert!(action(&mut app, respond(18, "accept")).is_err());
+        assert!(response.try_recv().is_err());
+    }
+
+    #[test]
+    fn waiting_for_a_user_response_is_cancelable_without_a_grant() {
+        let (sender, requests) = mpsc::sync_channel(1);
+        let handler = interaction_handler(sender, egui::Context::default());
+        let cancel = Cancellation::new();
+        let worker_cancel = cancel.clone();
+        let worker = std::thread::spawn(move || handler("item/fileChange/requestApproval", &json!({}), &worker_cancel));
+        let pending = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(pending.id > 0);
+        cancel.cancel();
+        assert_eq!(worker.join().unwrap().unwrap_err().kind, craft_ai_core::ErrorKind::Cancelled);
+        assert!(pending.reply.try_send(Ok(json!({"decision":"accept"}))).is_err());
     }
 }

@@ -279,9 +279,25 @@ impl EmbeddedPanel {
         self.focused
     }
     pub fn poll(&mut self, ctx: &egui::Context, client: &mut Client) {
+        self.poll_with_version_check(ctx, client, |_| Ok(()));
+    }
+    /// Validate the helper handshake before accepting any frame, even in the same batch.
+    pub fn poll_with_version_check(&mut self, ctx: &egui::Context, client: &mut Client, check: impl Fn(&str) -> Result<(), String>) {
         for event in client.poll() {
-            self.receive(ctx, event);
+            self.receive_checked(ctx, event, &check);
         }
+    }
+    fn receive_checked(&mut self, ctx: &egui::Context, event: HelperMessage, check: &impl Fn(&str) -> Result<(), String>) {
+        if self.error.is_some() {
+            return;
+        }
+        if let HelperMessage::Ready { version, .. } = &event
+            && let Err(error) = check(version)
+        {
+            self.error = Some(error);
+            return;
+        }
+        self.receive(ctx, event);
     }
     fn receive(&mut self, ctx: &egui::Context, event: HelperMessage) {
         match event {
@@ -649,6 +665,20 @@ mod tests {
         assert!(panel.error().is_some());
         assert!(ctx.output(|o| o.commands.is_empty()));
         assert!(panel.frame.is_none());
+    }
+    #[test]
+    fn minimum_version_rejection_prevents_texture_and_platform_effects_in_same_batch() {
+        let mut panel = EmbeddedPanel::new(Limits { max_message_bytes: 1024, max_texture_pixels: 1024, max_vertices: 1024, max_events: 16 }).unwrap();
+        let ctx = egui::Context::default();
+        panel.receive_checked(&ctx, HelperMessage::Ready { protocol: PROTOCOL, version: "0.1.4".into(), capabilities: vec![] }, &|_| {
+            Err("requires 0.1.5".into())
+        });
+        let frame = PanelFrame { commands: vec![PlatformCommand::CopyText { text: "not applied".into() }], ..PanelFrame::default() };
+        panel.receive_checked(&ctx, HelperMessage::Frame(Box::new(frame)), &|_| Ok(()));
+        assert_eq!(panel.error(), Some("requires 0.1.5"));
+        assert!(panel.textures.is_empty());
+        assert!(panel.frame.is_none());
+        assert!(ctx.output(|o| o.commands.is_empty()));
     }
     #[test]
     fn tab_exits_helper_in_both_directions_at_keyboard_boundaries() {

@@ -142,6 +142,10 @@ fn actual_helper_renders_and_handles_settings_stop_and_unknown_commands() {
     assert!(process.result("settings").is_ok());
     process.command("stop", "stop", serde_json::json!({}));
     assert!(process.result("stop").is_ok());
+    process.command("pending", "interaction_pending", serde_json::json!({}));
+    assert_eq!(process.result("pending").unwrap(), serde_json::Value::Null);
+    process.command("stale", "respond", serde_json::json!({"id":17,"response":{"decision":"accept"}}));
+    assert!(process.result("stale").is_err());
     process.command("unknown", "bad-command", serde_json::json!({}));
     assert!(process.result("unknown").is_err());
     process.send(HostMessage::Shutdown);

@@ -810,3 +810,32 @@ fn manifest_paths_stay_inside_the_checkout() {
     run(Embed::new().serve(&served, "fonts/"), Some(&dir), Some("1")).result.unwrap();
     assert_eq!(std::fs::read(served.join("OFL.txt")).unwrap(), b"licence");
 }
+
+#[test]
+fn additional_manifests_share_filters_and_preserve_opt_in_hans_coverage() {
+    let scratch = Scratch::new("extra-manifest");
+    std::fs::create_dir_all(scratch.0.join("fonts")).unwrap();
+    std::fs::write(scratch.0.join("fonts/synthetic.ttf"), b"synthetic-font-input").unwrap();
+    std::fs::write(scratch.0.join("fonts/manifest.txt"), "BIZ UDPGothic | Regular | fonts/synthetic.ttf | Jpan | OFL-1.1 | OFL.txt | 00 | src\nNoto Sans CJK SC | Regular | fonts/prohibited-missing.ttf | Hans | OFL-1.1 | OFL.txt | 00 | src\n").unwrap();
+    let extra = "fonts/simplified-chinese-manifest.txt";
+    std::fs::write(scratch.0.join(extra), "LXGW WenKai Lite | Regular | fonts/synthetic.ttf | Hani,Hans | OFL-1.1 | OFL.txt | 00 | src\n").unwrap();
+    let r = run(
+        Embed::new().additional_manifest(extra).scripts(&["Jpan", "Hans"]).filter(|face| !face.family.starts_with("Noto Sans CJK")),
+        Some(&scratch.0),
+        Some("1"),
+    );
+    assert_eq!(r.result.unwrap(), ["BIZ UDPGothic Regular", "LXGW WenKai Lite Regular"]);
+    assert!(r.cargo.contains(&format!("cargo::rerun-if-changed={}", scratch.0.join(extra).display())));
+    assert!(!r.table.contains("Noto Sans CJK"));
+    let r = run(
+        Embed::new().additional_manifest(extra).filter(|face| face.has_script("Hans") && !face.family.starts_with("Noto Sans CJK")),
+        Some(&scratch.0),
+        Some("1"),
+    );
+    assert_eq!(r.result.unwrap(), ["LXGW WenKai Lite Regular"]);
+    std::fs::remove_file(scratch.0.join(extra)).unwrap();
+    assert!(matches!(run(Embed::new().additional_manifest(extra), Some(&scratch.0), Some("1")).result, Err(Error::Read { .. })));
+    let optional = run(Embed::new().additional_manifest(extra), Some(&scratch.0), None);
+    assert!(optional.result.unwrap().is_empty());
+    assert!(optional.cargo.iter().any(|line| line.starts_with("cargo::warning=")));
+}

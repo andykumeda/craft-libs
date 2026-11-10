@@ -17,6 +17,8 @@ build. The build reads a local checkout named by `CRAFT_FONTS_DIR` instead.
 
 Give `CRAFT_FONTS_DIR` as an absolute path: Cargo runs build scripts in the package's directory.
 
+Consumers that need a reviewed opt-in catalog can call `Embed::additional_manifest("fonts/simplified-chinese-manifest.txt")`. Entries are read alongside the main manifest and share its family/script filters and required-input checks. An explicitly selected extra manifest must exist; a failure follows the same required-error or optional-warning/empty-table behavior as the main input. Default consumers still read only the main manifest.
+
 ## Using it
 
 `Cargo.toml` (same `rev` as the app's other craft-libs crates). The `subset` feature goes on the
@@ -200,3 +202,18 @@ One face per line, eight or nine fields separated by `" | "`; craft-fonts' `docs
 defines them. Lines starting with `#` are comments. A file field ending in `#<n>` names face `n` of
 a font collection (`fonts/noto-sans-cjk/NotoSansCJK.ttc#2`); without it the index is 0. The ninth
 field, `role`, is `ui` on interface faces and absent elsewhere. Fields after the ninth are ignored.
+
+
+## Shared helper policy checkpoint — 2026-11-04
+
+The assistant selects the reviewed native Simplified Chinese manifest alongside the main
+manifest, with one filter across both. This keeps BIZ Japanese and LXGW WenKai Lite while
+excluding DeckCraft's prohibited Source Sans3/Serif4/Han and Noto CJK families. Required native
+builds fail if the reviewed Hans manifest is missing; optional older inputs keep permitted main
+faces and warn about missing Hans. No font binary is copied into this repository.
+
+Verification: `cargo test -p craft-fonts-build` passed17 unit tests and2 consumer checks;
+`cargo test -p craft-assistant --features runtime --test font_policy` passed both helper policy
+regressions. Scoped all-target Clippy passed with warnings denied. The font workstream checked
+all13 selected faces from craft-fonts37827adc41fd165f9a9234ac40f94dbad353aa69 against recorded
+hashes and license files; signed package verification remains the delivery owner's check.

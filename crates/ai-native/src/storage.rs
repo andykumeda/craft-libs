@@ -170,6 +170,11 @@ impl HistoryStore {
         Ok(Self { root: root.join("chats").join(component(app.as_str())?) })
     }
 
+    /// The app-specific history directory, for observing atomic conversation changes.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     fn lock(&self) -> Result<File, AiError> {
         private_dir(&self.root)?;
         locked(&self.root.join("history.lock"))

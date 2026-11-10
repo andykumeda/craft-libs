@@ -11,11 +11,11 @@ cargo build -p craft-assistant --features runtime
 cargo test -p craft-assistant --features runtime -j 2
 ```
 
-Release builds must provide the pinned optional craft-fonts build input for supported interface scripts (`CRAFT_FONTS_DIR`, with `CRAFT_FONTS_REQUIRED=1`); fonts never enter this repository. Default dependency fonts and their licenses are recorded in the root ATTRIBUTION.md and NOTICE. This crate does not embed proprietary system fonts. Without the optional input, unsupported scripts may show missing glyphs. The helper embeds the licensed faces from the pinned manifest, including CJK faces, so its standalone UI does not depend on fonts in the host app.
+Release builds must provide the pinned optional craft-fonts build input for supported interface scripts (`CRAFT_FONTS_DIR`, with `CRAFT_FONTS_REQUIRED=1`); fonts never enter this repository. Default dependency fonts and their licenses are recorded in the root ATTRIBUTION.md and NOTICE. This crate does not embed proprietary system fonts. Without the optional input, unsupported scripts may show missing glyphs. The helper embeds licensed faces from the pinned main manifest and, on native builds, `fonts/simplified-chinese-manifest.txt`. It excludes Source Sans 3, Source Serif 4, Source Han Sans/Serif and every Noto Sans/Serif/Mono CJK family to satisfy the strictest host policy. Permitted BIZ Japanese faces remain, and LXGW WenKai Lite supplies Simplified Chinese without depending on host fonts. Required native builds fail if the reviewed Simplified Chinese manifest is absent. Optional builds with older main-only checkouts warn, retain permitted main faces, and do not substitute a prohibited Chinese face.
 
 See [installation and release configuration](../../docs/assistant-install.md) for shared `component.json`, publisher identity, exact platform asset selection, limits, signed `.app` packaging and rollback. `CRAFT_AI_CONFIG_DIR` overrides the existing suite settings root. Missing, newer or invalid configuration fails explicitly without choosing another source/provider.
 
-Debug app builds alone allow the explicit absolute `CRAFT_ASSISTANT_EXECUTABLE` path for isolated development. This bypass is absent from shipping release builds. Set `CRAFT_AI_CONFIG_DIR` to an isolated temporary directory when testing; no test should use personal chats or credentials. The helper accepts only `--stdio`; its stdout is exclusively framed protocol data.
+Debug app builds alone allow the explicit absolute `CRAFT_ASSISTANT_EXECUTABLE` path for isolated development. This bypass is absent from shipping release builds. Set `CRAFT_AI_CONFIG_DIR` and `CODEX_HOME` to isolated temporary directories when testing; no automated test should use personal chats or credentials. The helper accepts only `--stdio`; its stdout is exclusively framed protocol data.
 
 ## Lifecycle and updates
 
@@ -33,7 +33,7 @@ See the [implementation ledger](../../docs/independent-assistant.md). Synthetic 
 
 ## Chat layout
 
-The header contains a Chats menu (new, saved and delete actions) and a settings gear.
+The header has an explicit New chat action, a Chat history dropdown for saved conversations and a settings gear. Delete remains inside history.
 The composer has a `+` menu for file selection or an explicit output path, a compact model
 picker and Send/Stop. Attached paths remain visible and removable. Model choices use existing
 streaming/tool capability validation and persist only after the host acknowledges the save;
@@ -48,3 +48,49 @@ previous always-visible update toolbar. No protocol version or settings schema c
 Older helpers that omit the optional settings-view field retain their existing update toolbar, so a new host can still update an old helper.
 
 The compact-layout local rollout uses helper 0.1.1, retaining protocol/settings/history format1 and the immutable installed 0.1.0 for rollback.
+
+The navigation refinement ships as helper0.1.2 without another host rebuild (protocol/settings/history remain1). Version, update button, result/status copy and install action are one settings-only group in compatible hosts; regression coverage checks all three labels together.
+
+Idle panels check the shared connection/runtime files and app-specific history directory for changes before reloading them.
+Unchanged settings keep the composer model picker enabled; explicit Reload settings and
+actual shared-file changes retain the existing validated reload path.
+
+Tool calls, results and activity details remain in assistant state but are hidden from the conversation display.
+
+
+## Normal Codex environment and approvals
+
+Helper0.1.5 source uses the current Codex profile/account and its enabled skills, plugins,
+MCP servers and configured permissions. `CODEX_HOME` selects the profile, otherwise Codex's
+normal `~/.codex` applies. HOME-based skills remain available. The workspace defaults to
+`<Craft AI config root>/workspaces/<app-id>`, retaining generated outputs; it never inherits the
+GUI launch directory. `CRAFT_CODEX_WORKSPACE` explicitly selects an absolute project directory.
+Unsafe or invalid paths fail without fallback; existing project permissions are preserved.
+Existing Codex configuration is not copied or overwritten. Settings identifies the profile and
+workspace; an existing ChatGPT sign-in is reused.
+
+The pane shows native command/file/permission requests and input/MCP forms with explicit
+responses and Stop. There are no automatic grants. Compatible hosts keep bridge1; helper-owned
+rendering handles the new UI. Private-pipe automation can query `interaction_pending` and send
+`respond` with the exact pending id and response. Never log request parameters or user answers.
+App-engine document calls preserve Undo; external native shell/plugin changes follow Codex
+policy and are not part of app Undo. See the current [native contract](../../docs/assistant-native-services.md#codex-adapter-helper-015-source).
+
+Hosts can opt into a helper minimum with `Controller::require_minimum_version(0, 1, 5)`.
+Signed installation versions are checked before process startup, and every helper's Ready
+handshake is checked before frame ingestion. Rejected helpers cannot allocate frame textures
+or apply frame platform commands. Debug executable overrides have no signed manifest and are
+checked on Ready, after Initialize but before any frame; bridge1 has no earlier Hello message.
+Existing hosts keep their current compatibility policy unless they opt in.
+
+Helper0.1.6 removes forced strict configuration validation from native Codex startup so existing
+normal skills/plugin configuration uses Codex's default loader. Account, profile, permission
+and provider choices are unchanged. The0.1.5 activation attempt did not pass actual model
+acceptance; delivery must use the corrected signed version after its own acceptance checks.
+
+
+Helper0.1.7 adds a visible rounded outline around the message composer in light and dark themes,
+with the theme's selection outline while focused. It uses existing theme strokes and retains
+bridge/settings/history format1 and provider behavior. See the
+[composer verification record](../../docs/assistant-composer-outline.md) for source, package
+and per-device delivery status; a helper update does not require compatible hosts to rebuild.

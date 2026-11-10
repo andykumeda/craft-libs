@@ -3,9 +3,11 @@
 
 use craft_ai_core::assistant::{AssistantRole, Message, MessageRole};
 use craft_ai_core::{ConnectionDraft, ConnectionId, Prepared};
-use egui::{Id, RichText, Ui};
+use egui::{Id, Ui};
 
+mod interaction;
 mod settings;
+pub use interaction::{Interaction, InteractionForm};
 pub use settings::{RoleEdit, SettingsState, settings};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,12 +45,14 @@ pub struct State {
     pub activity: Vec<Activity>,
     pub settings_open: bool,
     pub settings: SettingsState,
+    pub interaction: Option<Interaction>,
+    pub interaction_form: InteractionForm,
 }
 
 /// An explicit user request. Applying it is always the host's responsibility.
-#[derive(Debug)]
 pub enum Action {
     Send(String),
+    Respond { id: u64, response: serde_json::Value },
     Stop,
     NewChat,
     OpenChat(String),
@@ -68,10 +72,37 @@ pub enum Action {
     DeleteConnection(ConnectionId),
 }
 
+impl std::fmt::Debug for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::Send(_) => "Send",
+            Self::Respond { id, .. } => return f.debug_struct("Respond").field("id", id).finish_non_exhaustive(),
+            Self::Stop => "Stop",
+            Self::NewChat => "NewChat",
+            Self::OpenChat(_) => "OpenChat",
+            Self::DeleteChat(_) => "DeleteChat",
+            Self::ChooseFiles => "ChooseFiles",
+            Self::AddFile(_) => "AddFile",
+            Self::RemoveFile(_) => "RemoveFile",
+            Self::SaveConnection(_) => "SaveConnection",
+            Self::DiscoverModels(_) => "DiscoverModels",
+            Self::TestConnection(_) => "TestConnection",
+            Self::VerifyModel { .. } => "VerifyModel",
+            Self::BeginCodexSignIn => "BeginCodexSignIn",
+            Self::RefreshCodex => "RefreshCodex",
+            Self::ReloadSettings => "ReloadSettings",
+            Self::SaveBinding { .. } => "SaveBinding",
+            Self::UseSuiteDefault { .. } => "UseSuiteDefault",
+            Self::DeleteConnection(_) => "DeleteConnection",
+        };
+        f.write_str(name)
+    }
+}
+
 impl State {
     /// Empty, unavailable and busy submissions preserve the draft.
     pub fn submit(&mut self) -> Option<Action> {
-        if !self.available || self.busy || self.draft.trim().is_empty() {
+        if !self.available || self.busy || self.interaction.is_some() || self.draft.trim().is_empty() {
             return None;
         }
         Some(Action::Send(std::mem::take(&mut self.draft)))
@@ -83,7 +114,16 @@ impl State {
 pub fn show(ui: &mut Ui, id: Id, state: &mut State, translate: impl Fn(&str) -> String) -> Vec<Action> {
     let mut actions = Vec::new();
     ui.push_id(id, |ui| {
+        if state.interaction.is_none() {
+            state.interaction_form = InteractionForm::default();
+        }
         header(ui, state, &translate, &mut actions);
+        if let Some(request) = &state.interaction {
+            if let Some(action) = interaction::show(ui, request, &mut state.interaction_form, &translate) {
+                actions.push(action);
+            }
+            return;
+        }
         if state.settings_open {
             egui::ScrollArea::vertical().id_salt("assistant_settings").show(ui, |ui| {
                 actions.extend(settings(ui, id.with("settings"), &mut state.settings, &translate));
@@ -113,7 +153,9 @@ pub fn show(ui: &mut Ui, id: Id, state: &mut State, translate: impl Fn(&str) -> 
             },
         );
         ui.add_space(8.0);
-        egui::Frame::new().fill(ui.visuals().extreme_bg_color).corner_radius(12.0).inner_margin(10.0).show(ui, |ui| {
+        let focused = ui.memory(|memory| memory.has_focus(id.with("composer")));
+        let outline = if focused { ui.visuals().selection.stroke } else { ui.visuals().widgets.noninteractive.fg_stroke };
+        egui::Frame::new().fill(ui.visuals().extreme_bg_color).stroke(outline).corner_radius(12.0).inner_margin(10.0).show(ui, |ui| {
             composer(ui, id, state, &translate, &mut actions);
         });
     });
@@ -123,26 +165,36 @@ pub fn show(ui: &mut Ui, id: Id, state: &mut State, translate: impl Fn(&str) -> 
 fn header(ui: &mut Ui, state: &mut State, tr: &impl Fn(&str) -> String, actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
         ui.add_enabled_ui(!state.busy, |ui| {
-            ui.menu_button(tr("Chats"), |ui| {
-                if ui.button(tr("New chat")).clicked() {
-                    actions.push(Action::NewChat);
-                    ui.close();
-                }
-                for chat in &state.history {
-                    let label = if chat.interrupted { format!("{} · {}", chat.title, tr("Interrupted")) } else { chat.title.clone() };
-                    if ui.selectable_label(Some(&chat.id) == state.active_chat.as_ref(), label).clicked() {
-                        actions.push(Action::OpenChat(chat.id.clone()));
-                        ui.close();
+            ui.set_max_width((ui.available_width() - 40.0).max(1.0));
+            if ui.button(tr("New chat")).on_hover_text(tr("Start a new conversation")).clicked() {
+                actions.push(Action::NewChat);
+            }
+            let history = crate::ComboBox::from_id_salt("assistant_history")
+                .selected_text(tr("Chat history"))
+                .width(108.0)
+                .truncate()
+                .show_ui(ui, |ui| {
+                    ui.set_max_width(260.0);
+                    if state.history.is_empty() {
+                        ui.label(tr("No saved chats"));
                     }
-                }
-                if let Some(id) = &state.active_chat {
-                    ui.separator();
-                    if ui.button(tr("Delete chat")).clicked() {
-                        actions.push(Action::DeleteChat(id.clone()));
-                        ui.close();
+                    for chat in &state.history {
+                        let label = if chat.interrupted { format!("{} · {}", chat.title, tr("Interrupted")) } else { chat.title.clone() };
+                        if ui.selectable_label(Some(&chat.id) == state.active_chat.as_ref(), label).clicked() {
+                            actions.push(Action::OpenChat(chat.id.clone()));
+                            ui.close();
+                        }
                     }
-                }
-            });
+                    if let Some(id) = &state.active_chat {
+                        ui.separator();
+                        if ui.button(tr("Delete chat")).clicked() {
+                            actions.push(Action::DeleteChat(id.clone()));
+                            ui.close();
+                        }
+                    }
+                })
+                .response;
+            history.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, ui.is_enabled(), tr("Chat history")));
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let response = ui.add(egui::Button::new(" ").min_size(egui::vec2(32.0, 32.0)).selected(state.settings_open));
@@ -171,21 +223,14 @@ fn transcript(ui: &mut Ui, state: &State, tr: &impl Fn(&str) -> String) {
         ui.label(tr("Ask a question or describe a document change."));
     }
     for (index, message) in state.messages.iter().enumerate() {
-        if message.role == MessageRole::System {
+        if matches!(message.role, MessageRole::System | MessageRole::Tool) {
             continue;
         }
-        let speaker = match message.role {
-            MessageRole::User => "You",
-            MessageRole::Assistant => "Assistant",
-            MessageRole::Tool => "Tool result",
-            MessageRole::System => "System",
-        };
+        if message.role == MessageRole::Assistant && message.content.is_empty() {
+            continue;
+        }
         ui.push_id(index, |ui| {
-            if message.role == MessageRole::Tool {
-                egui::CollapsingHeader::new(tr(speaker)).show(ui, |ui| {
-                    ui.label(&message.content);
-                });
-            } else if message.role == MessageRole::User {
+            if message.role == MessageRole::User {
                 let width = (ui.available_width() * 0.85 - 16.0).max(1.0);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                     egui::Frame::new().fill(ui.visuals().faint_bg_color).corner_radius(12.0).inner_margin(8.0).show(ui, |ui| {
@@ -197,20 +242,8 @@ fn transcript(ui: &mut Ui, state: &State, tr: &impl Fn(&str) -> String) {
                 });
             } else {
                 ui.add(egui::Label::new(&message.content).wrap());
-                for call in &message.tool_calls {
-                    ui.small(format!("{}: {}", tr("Tool"), call.name));
-                }
             }
             ui.add_space(8.0);
-        });
-    }
-    for (index, activity) in state.activity.iter().enumerate() {
-        ui.push_id(("activity", index), |ui| {
-            let label =
-                if activity.failed { RichText::new(&activity.label).color(ui.visuals().error_fg_color) } else { RichText::new(&activity.label) };
-            egui::CollapsingHeader::new(label).show(ui, |ui| {
-                ui.label(&activity.detail);
-            });
         });
     }
 }

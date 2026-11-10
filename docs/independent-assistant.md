@@ -1,6 +1,8 @@
 # Independently updated assistant
 
-Status: the local certificate-pinned assistant and three customized apps are installed on both Macs. Source-level MCP parity is verified; native qualification and the independent-update demonstration remain partial. See [two-Mac rollout](two-mac-rollout.md) for current device-specific evidence and limitations. No public releases have been published.
+Current source (2026-11-05): helper0.1.7 adds a visible idle/focus outline to the bottom message box. Source tests, light/dark visual checks and signed qualification pass; helper0.1.7 is now installed on both Macs with per-host handshakes and installed panel rendering checks. The previously deployed helper0.1.6 normal Codex behavior remains unchanged. See [composer outline verification](assistant-composer-outline.md) and [two-Mac rollout](two-mac-rollout.md).
+
+Historical delivery status (2026-11-03): local certificate-pinned assistant0.1.1 is installed and its independent UI update passed native checks in all three existing apps on both Macs. Compact rebuilt hosts are in progress; earlier qualification remains historical below. Source-level MCP parity is verified; native qualification and the independent-update demonstration remain partial. See [two-Mac rollout](two-mac-rollout.md) for current device-specific evidence and limitations. No public releases have been published.
 
 The assistant remains embedded in PDFCraft, WordCraft and GridCraft. A shared executable owns its interface and native services; each app retains document authorization, editing and Undo. Private process pipes carry a versioned protocol. Model/provider selection and authentication use the existing suite-wide store and credential namespace. App overrides remain optional; chats and file grants remain app-separated.
 
@@ -14,7 +16,7 @@ The assistant remains embedded in PDFCraft, WordCraft and GridCraft. A shared ex
 | Word/Grid integration / primary | Same shared helper, isolated documents/history, existing automation preserved | Consumer assistant adapters | PDF embedding verification | Verified | Guarded Word 0.15.0 and Grid 0.16.0 installed on both Macs; isolated native helper and synthetic MCP smoke passed; see two-Mac rollout |
 | Component installation / installer agent | Verified immutable installs, compatible activation, locking and offline resolution | assistant-install | Protocol/schema versions | Verified | Locally certificate-pinned 0.1.0 installed on both Macs; real signature and private-pipe handshakes verified; public release remains separate |
 | App updates / updater agent | Configured compatible fork releases; no upstream fallback | update/custom and consumer updater modules | Signed compatibility metadata | Verified | Fork sources and local certificate pin configured on both Macs; update activation from published assets not demonstrated |
-| Delivery / primary | Assistant-only update changes all three panels with unchanged app binaries | Packaging, docs, focused commits | All previous work | Blocked | No published signed update assets; assistant-only update across all three unchanged app binaries and app update activation remain to be demonstrated |
+| Delivery / primary | Assistant-only update changes all three panels with unchanged app binaries | Packaging, docs, focused commits | All previous work | Verified | Locally signed helper-only update and independent PDF/Word/Grid native/MCP checks passed on both Macs with unchanged app hashes; public feed/notarized release and app-update activation remain deferred |
 
 ## Verification and limitations
 
@@ -109,3 +111,134 @@ installed-app interaction and signed update activation remain unperformed for th
 Older helpers that omit the optional settings-view field retain their existing update toolbar, so a new host can still update an old helper.
 
 Compatibility follow-up: 26 helper unit tests and 4 process tests passed; strict all-target lint passed. The missing-field regression fails with the former false default.
+
+## Idle model picker refresh — 2026-11-04
+
+Owner: shared assistant. State: **Verified** (source). The idle server previously started a full settings
+reload every second, disabling the model picker until each read completed. It now compares the
+shared connection/runtime file revisions before starting that reload. Actual file changes and
+explicit Reload settings retain validation, error reporting and shared model synchronization.
+The regression covers repeated unchanged ticks and a synthetic changed runtime configuration;
+a separate composer check covers stable geometry across narrow widths. No installed helper
+replacement is claimed by this source entry.
+
+Verification: 471 shared UI tests and 7 doctests passed (2 visual/manual tests ignored),
+28 helper runtime tests and 4 process tests passed. The unchanged-refresh regression failed
+when its revision guard was removed, then passed after restoration. The isolated changed-file
+test applies a new shared RuntimeConfig and verifies the next unchanged refresh stays idle.
+Scoped all-target Clippy with warnings denied, formatting and whitespace checks passed.
+Native installed interaction remains a separate delivery check.
+
+History-preservation follow-up: the revision check also observes the app-specific history
+directory. Normal create/save/delete operations use atomic replacement or removal, updating
+that directory's metadata; another process's conversation changes therefore still refresh the
+chat list. The isolated regression creates a conversation, changes its title, deletes it, and
+checks each refreshed list. External edits that deliberately preserve tracked metadata require
+explicit Reload settings; the source records this limit beside the revision check.
+
+Verification: removing history-directory observation made the create/read-back assertion fail;
+restoring it passed. The 68 native-provider/HTTP/runtime checks, 28 helper tests and 4 helper
+process tests passed again, with strict scoped all-target Clippy, formatting and whitespace
+checks green. Installed helper interaction is recorded by the delivery owner separately.
+
+Delivery checkpoint: helper 0.1.3 was signed and installed on the MacBook on 2026-11-04; installed native idle-control checks passed. See [per-device delivery evidence and limitations](two-mac-rollout.md#model-selector-and-macbook-codex-repair--2026-11-04). Mini activation remains unchanged.
+
+
+## Normal Codex environment and approvals — 2026-11-04
+
+| Workstream / owner | Acceptance | State | Release |
+| --- | --- | --- | --- |
+| Native profile/runtime / shared runtime agent | Normal CODEX_HOME/HOME/config startup and explicit skill/approval/continuation regressions | Verified | Source helper0.1.5 only; live acceptance pending |
+| Interactive request UI / shared UI agent | Explicit command/file/permission decisions, user questions and MCP forms/URLs; no automatic grants; bounded/redacted transient state | Verified | Synthetic UI/source checks; native interaction pending; bridge1 unchanged |
+| Helper fonts / shared UI agent | Deck-compatible permitted fonts; retained BIZ Japanese and native LXGW Hans; forbidden families excluded | Verified | Source/build-input checks; signed artifact check pending |
+| Native acceptance and delivery / delivery owner | Actual skill/document turn, configured plugins, native command cleanup on Stop/helper exit, signed helper and host acceptance | In progress | No installation claimed by this source change |
+
+The native profile contract is documented in [Assistant native services](assistant-native-services.md#codex-adapter-helper-015-source).
+This slice does not migrate native desktop history: Craft retains app-specific canonical chats
+and ephemeral native turns. Registered app document tools keep engine Undo; native external
+shell/plugin operations follow Codex's configured policy and are outside app Undo. No user
+Codex configuration is rewritten by startup, and no provider/account fallback is introduced.
+
+Public app-server documentation and the installed0.166.0-alpha.6 experimental schema guided
+the request/response implementation. External craftrules standards were unavailable locally
+and returned404; repository safety, asset and code-quality instructions were followed.
+
+Source verification for this slice: 480 UI tests,70 native-provider/HTTP/runtime checks,
+30 helper unit tests,6 helper integration/process tests,19 font-build checks and7 UI doctests
+passed; further UI integration tests also passed. Strict scoped all-target Clippy, formatting,
+whitespace and craft-ui WASM checks passed. Three negative controls failed as intended when
+HOME isolation was restored, the post-response deadline reset was removed, or native interruption
+was omitted; restored source passed. The owned-command failure test also cleans its exact
+fixture PID. Source is ready for native acceptance, not a claim of signed installation or
+complete desktop/history parity. Real native skills/plugins, actual Codex subprocess cleanup
+and app-engine Undo acceptance remain with the delivery owner.
+
+## Workspace safety and host minimum follow-up (helper 0.1.5 source)
+
+| Workstream | Acceptance | State | Delivery |
+| --- | --- | --- | --- |
+| Codex workspace | Finder cwd `/` never becomes writable workspace; explicit absolute override, stable app outputs, invalid-path refusal and existing permission preservation | Verified | Source checks; rebuilt native acceptance remains with delivery owner |
+| Host helper minimum | Opt-in semantic version gate rejects signed old installs before spawn and debug old Ready before any frame effects | Verified | Deck host opts into minimum0.1.5; existing hosts unchanged |
+
+`CRAFT_CODEX_WORKSPACE` is the explicit project/output override. Otherwise each helper app uses
+`<Craft AI config root>/workspaces/<app-id>` and preserves outputs; normal Codex global profile,
+account and capabilities remain shared. Settings displays both workspace and profile. Existing
+project permissions are retained; new Unix directories are private. Root, traversal, relative
+and application-bundle paths, including resolved symlinks, fail without fallback. The selected
+workspace controls Codex project-config discovery, separate from normal HOME/CODEX_HOME.
+
+The host API adds `Controller::require_minimum_version(major, minor, patch)` without changing
+bridge1 or shared settings schemas. Signed Installed.version is checked before spawn; debug
+executables are checked on Ready after Initialize (bridge1 has no pre-initialization Hello).
+The bridge refuses old handshakes before frame texture allocation or platform effects, even
+when Ready and Frame arrive in one poll. Helper0.1.5 has not been installed by this source change.
+
+Workspace/gate verification: native43 unit +6HTTP +24runtime checks, helper32unit +6integration/
+process checks, bridge15unit, UI480unit +8integration +7doctests passed. Final focused checks (19 Controller and3 workspace tests)
+also cover the signed pre-spawn gate and the actual Finder WorkingDirectory path. No live
+installation is claimed; final rebuilt helper acceptance and app-engine Undo remain with the
+delivery owner. Asset inputs and existing app tool catalogs are unchanged by this follow-up.
+
+Strict scoped all-target Clippy, formatting and whitespace checks passed for the follow-up.
+
+## Native profile startup compatibility follow-up (helper0.1.6 source)
+
+The Mini's actual installed WordCraft model turn exposed a forced strict-config incompatibility:
+the installed Codex accepted its normal skills configuration without the flag, but rejected a
+legacy skills field with strict validation and disconnected. The adapter now uses normal
+app-server config-loading arguments, preserving the same profile/account and policies. This
+is a new immutable helper0.1.6; helper0.1.5 remains a recorded incomplete activation attempt.
+The MacBook0.1.5 install completed before the failure hold arrived: signature/hash/4app
+handshakes and unchanged configuration/app binaries passed, previous0.1.4 retained; no model
+turn was launched there and deployed/usable status was not claimed. Delivery owns rollback
+and replacement. New source regression checks the actual command builder's exact arguments.
+
+Follow-up verification:44native and33helper unit tests passed, including the exact startup-args
+regression; strict scoped all-target Clippy, formatting and whitespace checks passed. Signed
+helper0.1.6 actual installed-app model acceptance remains pending with the delivery owner.
+
+
+Helper0.1.6 delivery is now **Deployed** on both Macs after independent signed temporary-store
+actual installed Word model acceptance, followed by guarded global activation. Mini24.27s and
+MacBook10.11s native Terra document edits passed visible-result/Undo/Redo/save/reopen checks;
+configuration/app hashes were preserved and previous0.1.4 retained. Version0.1.5's failed
+strict-config activation was rolled back first. See [two-Mac delivery evidence](two-mac-rollout.md#normal-codex-environment-workspace-safety-and-approvals--2026-11-04).
+
+The final DeckCraft integration opts into minimum helper0.1.6, the first candidate qualified
+against normal-profile live acceptance. Earlier0.1.5 minimum references above describe the
+API/font-policy source checkpoint; the generic gate accepts any host-supplied semantic minimum.
+
+### Assistant 0.1.7 and upstream reconciliation
+
+The integrated assistant 0.1.7 history is merged with the previously verified upstream updater
+reconciliation. The updater implementation is unchanged from that earlier merge. The font builder
+retains the checkout-boundary checks for faces and licences while adding the assistant's optional
+additional-manifest support; tests for both behaviors pass.
+
+Before publication, workspace formatting and Clippy with warnings denied passed. The workspace
+test run passed 2,911 tests with 34 ignored, using the pinned font and translation inputs. The run
+isolated the locally installed French dictionary because tests assume different host dictionaries;
+one of the dictionary files was modified. The atomic replacement mode-bit test was excluded from
+that isolated run and passed separately in the normal per-user system temporary directory. Its
+first separate attempt in a different temporary directory failed because the OS cleared a special
+mode bit. These checks do not establish installed-app or live-model behavior.

@@ -1,6 +1,6 @@
 # Assistant native services
 
-Status: unified-model shared checkpoint verified; consumer delivery pending. Last checked: 2026-10-29.
+Status: normal Codex environment and interactive approvals passed source verification for helper0.1.5; native acceptance remains in progress. Last checked: 2026-11-04. Installed delivery is recorded separately.
 
 `craft-ai-native` keeps shared connections, local chat histories, credentials, and Codex process
 management outside application engines. It imports the portable `craft-ai-core::assistant`
@@ -28,90 +28,69 @@ uses the OS store under `org.craft-apps.assistant`; unavailable or locked stores
 There is no plaintext fallback. Settings contain references only. Native code never logs an API
 key. The storage API is blocking and must run on an application's worker, not its UI thread.
 
-## Codex adapter
+## Codex adapter (helper 0.1.5 source)
 
-Route a connection whose provider is `codex` to `CodexProvider::new(CodexOptions::in_shared_root(root))`.
-Create or `fork_turn()` one provider per active `run_turn` invocation, including any legacy
-nested exchanges. A long-lived template may retain successful synthetic runtime proofs; a fork
-starts with empty callback state and requires a fresh isolated-account check. Drop the turn
-provider and every clone on all success/error exits, or cancel that turn's token on every exit.
-This is a portable host integration obligation: a host or orchestration error can finish a turn
-without another provider call, leaving a reused provider's parked workers alive until expiry.
-WordCraft already constructs and drops its provider inside each turn worker.
+Route a `codex` connection to `CodexProvider::new(CodexOptions::from_environment())`.
+The earlier `in_shared_root(root)` constructor remains compatible with existing hosts and
+uses the same discovery; it now selects the normal
+`CODEX_HOME`, or `~/.codex` when unset. `HOME` and the normal process environment remain intact
+for Codex's global skills, installed plugins, MCP configuration, credentials and policies.
+The workspace is independent of the helper's launch directory (including Finder's `/`).
+`CRAFT_CODEX_WORKSPACE` selects an absolute project/output directory. Without it the helper uses
+`<Craft AI config root>/workspaces/<app-id>`; standalone provider consumers use `workspaces/codex`
+unless they supply an app default with `with_workspace`. Outputs persist across turns and restarts.
+Root, relative, parent-traversal and application-bundle paths are refused, including existing
+symlink targets; invalid overrides fail without fallback. Newly created directories are private
+on Unix; existing project permissions are preserved. Codex resolves project configuration in
+this selected workspace while its normal HOME/CODEX_HOME skills, plugins and account remain
+available. Craft does not copy the profile or rewrite its configuration. Settings displays
+both the selected workspace and effective profile directory for verification.
+Existing app conversations remain in Craft's app-specific history.
 
-`CodexOptions::in_shared_root` reads `CRAFT_CODEX_BINARY` when set; otherwise it resolves `codex`
-from `PATH`. Set an absolute path for installations outside the application's `PATH`. An empty or
-missing selected executable fails explicitly without substituting another runtime. `CodexOptions`
-also permits apps to supply an executable path directly and an absolute, dedicated home. It refuses
-the user's existing default or active Codex home. `CODEX_HOME`, `HOME`, and `USERPROFILE` all
-point to that dedicated home: Codex discovers global `.agents` skills through `HOME` independently
-of `CODEX_HOME`. The child inherits platform plumbing only, not API keys, alternate user-config
-roots, or proxy/provider configuration. Existing coding-session configuration is not changed or copied.
+`CRAFT_CODEX_BINARY` is an exact executable override. Otherwise discovery tries PATH first,
+then the reviewed Codex.app/ChatGPT.app CLI bundle locations in macOS application directories.
+An empty/missing explicit override fails rather than selecting another runtime. The active
+subscription connection requires a ChatGPT account in that selected profile; an API-key account
+is not silently selected instead. The sign-in action reuses an existing signed-in profile.
+Signing in when needed uses Codex's normal profile, rather than a separate Craft account.
 
-- `signed_in(config, cancellation)` reports only whether the isolated account is a ChatGPT account.
-- `start_login` returns a `LoginSession` with an HTTPS authorization URL and one-time code. Keep
-  this on a worker and call `poll`; dropping it stops the sign-in helper. Never persist or log the
-  one-time code. Login happens only after the user's sign-in action.
-- `models` pages through the runtime's model catalog. Catalog discovery alone does not enable
-  inference. The provider implements the shared `ChatProvider::complete` interface for streamed
-  text and identified tool requests. Before sending any caller-supplied context, `complete` calls
-  `verify_compatibility(connection, model, config, cancellation)` with synthetic data only.
-- Each active chat/control exchange uses one ephemeral thread with bounded initial canonical
-  context. A dynamic tool request must match its thread, turn, registered name, unique call ID,
-  and valid JSON-RPC request ID. Craft records and dispatches the call; the next provider request
-  supplies its result through the original JSON-RPC response, continuing the same Codex turn.
-  The exact prior transcript, call ID, connection, model, tool catalog, runtime limits and executable
-  identity must still match. A changed or missing continuation fails without starting another
-  thread or replaying a result. Craft remains the canonical history owner; no ephemeral thread
-  is resumed after an interruption or loaded from `thread/resume.history`.
-- A provider retains at most two waiting exchanges, allowing chat delegation to wait while app
-  control uses another worker, even when both roles select the same model. Compatibility probes
-  have separate ephemeral state. Waiting workers are killed on cancellation, expiry or final
-  provider drop; every continuation error clears the remaining workers. Parked expiry uses the
-  configured request timeout multiplied by the round limit, allowing delegated work to finish.
-  Active reads and pipe writes have fixed request deadlines and cancellation checks. A new round
-  returns only newly streamed text, preserving earlier text in Craft's transcript.
-- Cancellation checks interrupt waiting and kill the owned process. Disconnects, rejected requests,
-  and uncertain outcomes are reported without automatic retry.
+Codex loads its own base instructions, skills, plugins, MCP servers and configured permissions.
+Craft adds developer instructions and the registered document tools, without a built-in-tool
+allowlist, forced sandbox, disabled-feature list or different approval policy. Explicit `$skill`
+references are matched to enabled `skills/list` entries and sent as native skill input items.
+The selected model must match the thread/start result; model/provider fallback is not accepted.
+Catalog discovery alone does not prove inference access.
 
-The adapter disables shell execution, local image viewing, browser/computer tools, external
-apps/plugins, hooks, multi-agent work, memories, image generation, and other unrelated features.
-It uses the named `craft-assistant` permission profile: root reads denied, minimal system paths
-readable, only the empty working directory readable, no writes, network disabled, and approvals
-never. The permission table is passed as one TOML CLI override; dotted CLI keys containing quoted
-filesystem names are not equivalent and were rejected by Codex 0.165.0.
+Native command/file approvals, permission requests, user questions and MCP form/URL elicitations
+appear inside the assistant pane. Nothing is approved or submitted merely by rendering a request.
+Responses are correlated to one current request, bounded, validated against offered decisions or
+requested grants, and sent once. Cancel/Stop remains available. Unknown request types fail with
+an actionable error. MCP forms outside the supported scalar field set use explicit JSON input.
+Secret answers are transient and action Debug output omits payloads. URLs open only on an explicit
+user action. No approval rewrites user configuration unless the user explicitly chooses a proposed
+persistent command/network rule.
 
-Before inference, `verify_compatibility` requires all of the following:
+`CodexProvider::with_interaction` supplies the native interactive callback for non-GUI clients.
+The helper exposes private-pipe commands `interaction_pending` (null or current id/method/params)
+and `respond` (`{id,response}`), using the same validated path as the UI. Callers must not log
+request parameters, answers or authentication URLs. Bridge/settings/history formats remain1;
+approval rendering requires the new helper, not a host rebuild.
 
-1. `verify_isolation` checks effective configuration and launches the real Codex OS sandbox
-   against a synthetic denied-read sentinel and a forbidden write in the empty folder.
-2. The same sandbox must deny a connection to a retained, OS-assigned `127.0.0.1:0` listener.
-   A working `curl` executable is required. The identical request must first succeed outside
-   the sandbox, and `curl --version` must succeed inside it. The blocked request must return
-   connection failure (curl status 7) without reaching the listener. Startup failures do not
-   count as network-denial proof. All child processes have bounded, cancellable waits.
-3. The isolated account must be signed in. The selected model must call exactly one synthetic
-   dynamic tool with the supplied challenge, then consume its actual protocol result and return
-   its confirmation in the same turn. Tools remain available and no extra user prompt directs
-   the continuation. The test has no host adapter, document, file grants or edit command.
-   Only synthetic messages are sent, with the configured request/context/response limits.
+Registered Craft document calls retain exact target/turn/tool identity checks, canonical result
+continuation, host file/root permissions and app Undo. Native shell/plugin changes outside the
+app engine follow Codex's policy and are not covered by app Undo. User content remains data, not
+instructions. No operation or uncertain result is retried automatically. Each user turn owns
+fresh callback state and an ephemeral native thread; Craft retains its own canonical transcript.
 
-Failures leave inference disabled with an explicit error. No flag or persisted acceptance file
-bypasses these checks. Successful containment and callback proofs are cached only in memory,
-keyed by resolved executable path/size/modification time, exact model, and runtime limits. Clones
-and `fork_turn()` share that proof cache; a separately constructed provider or changed identity
-rechecks it. Each fork has independent waiting exchanges and per-turn verification state, so it
-checks isolated-account sign-in before application context is sent even when a runtime proof is
-cached. Effective policy is still checked on every worker. The cache is bounded and is never
-persisted; it does not retain a document, conversation or tool callback between turns.
-Login and catalog discovery remain available so an unverified connection can be configured.
+Human response waits remain cancelable and restart the inference receive deadline after the
+response. Stop/drop first sends native `turn/interrupt`, then closes stdin for Codex's tool/MCP
+cleanup; only an unresponsive server is force-stopped after the existing configured connect
+timeout. Runtime request/context/response limits remain in the shared RuntimeConfig.
 
-The public app-server API has no dynamic-tools-only allowlist: residual built-in tools are
-constrained by the sandbox and unexpected activity is rejected. This runtime check validates
-model callback transport and canonical result continuation; a real callback through each app's
-host adapter remains a separate integration acceptance test. Network probing uses only a temporary
-loopback listener, with no fixed port, proxy, persistent service or external request. The listener
-is retained during the checks and closes afterward; a fresh run allocates a fresh port.
+The public protocol reference is [Codex App Server](https://learn.chatgpt.com/docs/app-server).
+Implementation was checked against the installed0.166.0-alpha.6 experimental JSON schema.
+The dated verification records below describe earlier isolated builds unless noted otherwise;
+the former containment probes are not the normal-profile permission contract.
 
 ## Verification record
 
@@ -230,3 +209,30 @@ account check despite cached runtime proof. A live synthetic Codex transport pro
 document-edit benchmark or evidence of panel/external-client performance parity. Consumer
 edit/save/reopen/Undo, same-fixture model comparisons and packaged delivery remain separate
 gates recorded in the WordCraft consumer ledger.
+
+
+## Historical helper0.1.3 GUI-launched Codex discovery — 2026-11-04
+
+Helper0.1.3 includes PATH-first installed-bundle discovery on macOS. The change selects the
+same Codex CLI runtime; it does not select another provider, inherit its desktop account, copy
+history/configuration, or change Craft's isolated Codex home. The existing compatibility and
+network-containment checks still run before document content is sent.
+
+Deterministic candidate tests cover absent PATH candidates, installed-bundle discovery, PATH
+precedence and exact overrides. A separate explicitly run installed-bundle smoke starts only
+`--version` with `/usr/bin:/bin` as the child PATH; authentication and inference are separate checks.
+
+Source verification: 38 native-provider unit tests, 6 HTTP tests and 24 synthetic runtime
+integration tests passed; 6 manual/live checks remained ignored. All 28 helper runtime tests
+and 4 process tests passed. Scoped all-target Clippy with warnings denied, formatting and
+whitespace checks passed. Removing installed-bundle discovery makes its deterministic test
+fail; restoring it passes. The explicit local installed-bundle smoke resolved the ChatGPT CLI
+and printed `codex-cli 0.166.0-alpha.6`. This proves process discovery/startup only; authenticated
+provider compatibility, containment and inference remain separate from this version check.
+
+Helper0.1.6 follows Codex's normal configuration-loading semantics without forcing
+`--strict-config`. The strict override rejected a legacy skills configuration field accepted
+by the same installed Codex executable in normal mode, disconnecting before a native turn.
+No profile or provider fallback is introduced; the original normal profile is still used.
+A command-builder regression checks the exact app-server argument list. Other startup/runtime
+errors remain reported to the user without replay; stderr stays private and is not logged.

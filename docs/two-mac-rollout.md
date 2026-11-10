@@ -1,6 +1,6 @@
 # Two-Mac assistant rollout
 
-Updated 2026-11-02. Scope: PDFCraft, WordCraft, GridCraft and the shared assistant on AKsMini and AKs-MBPro.local. Preserve existing documents, settings, credentials, launchers and rollback copies. Installation requires a working, authenticated shared assistant package and compatible app bundles; verify each app with a synthetic document and a read-only MCP request before marking it deployed.
+Updated 2026-11-03. Current compact-layout rollout is recorded below; the first table preserves the previous release checkpoint. Scope: PDFCraft, WordCraft, GridCraft and the shared assistant on AKsMini and AKs-MBPro.local. Preserve existing documents, settings, credentials, launchers and rollback copies. Installation requires a working, authenticated shared assistant package and compatible app bundles; verify each app with a synthetic document and a read-only MCP request before marking it deployed.
 
 | Device | Component | State | Current evidence and remaining work |
 | --- | --- | --- | --- |
@@ -54,17 +54,215 @@ PDFCraft installed standard and preview smoke passed on both Macs with isolated 
 
 ## Compact-layout update — 2026-11-03
 
-Scope: shared assistant 0.1.1 and compatible PDFCraft/WordCraft/GridCraft hosts, standard and existing preview copies, on verified arm64 AKsMini and AKs-MBPro.local. Preserve settings/chats and existing signed trust; retain immutable helper 0.1.0 and app rollback bundles. No public release.
+Scope: shared assistant 0.1.2 and compatible PDFCraft/WordCraft/GridCraft hosts, standard and existing preview copies, on verified arm64 AKsMini and AKs-MBPro.local. Preserve settings/chats and existing signed trust; retain immutable helper 0.1.0 and app rollback bundles. No public release.
 
 | Device | Component / owner | Target | State | Acceptance / evidence | Remaining activation |
 | --- | --- | --- | --- | --- | --- |
-| AKsMini | Shared helper / primary | 0.1.1 | In progress | Signed bundle, installer resolution, three app handshakes, native panels | Build/package/install |
-| AKs-MBPro.local | Shared helper / primary | 0.1.1 | In progress | Same archive hash, signature, resolution, three app handshakes | Build/package/install |
-| AKsMini | PDFCraft / primary | Compact host | In progress | Signed standard+preview, synthetic panel/settings/update/file/model controls | Build/package/install |
-| AKs-MBPro.local | PDFCraft / primary | Compact host | In progress | Same signed bundles, independent native smoke | Build/package/install |
-| AKsMini | WordCraft / Word workstream | Compact host | In progress | Source gates, signed standard+preview, native panel and MCP smoke | Prepare candidates |
-| AKs-MBPro.local | WordCraft / Word workstream | Compact host | In progress | Same signed bundles, independent native smoke | Prepare candidates |
-| AKsMini | GridCraft / Grid workstream | Compact host | In progress | Source gates, signed standard+preview, native panel and MCP smoke | Prepare candidates |
-| AKs-MBPro.local | GridCraft / Grid workstream | Compact host | In progress | Standard only (no preview installed), independent native smoke | Prepare candidates |
+| AKsMini | Shared helper / primary | 0.1.2 | Deployed | Certificate-pinned install, three handshakes, unchanged-host PDF/Word/Grid native panels + synthetic MCP passed; 0.1.0 retained | Complete |
+| AKs-MBPro.local | Shared helper / primary | 0.1.2 | Deployed | Same signed archive/executable, three handshakes and unchanged-host PDF/Word/Grid native panel + synthetic MCP checks passed | Complete |
+| AKsMini | PDFCraft / primary | 71cc43cc / helper0.1.2 | Deployed | Signed standard+preview installed; native panel/settings/update/file/model controls and183-tool synthetic MCP passed | Complete |
+| AKs-MBPro.local | PDFCraft / primary | 71cc43cc / helper0.1.2 | Deployed | Same signed bundles; independent standard+preview native/MCP smoke passed | Complete |
+| AKsMini | WordCraft / Word workstream | dbacf0c4 / helper0.1.2 | Deployed | Exact CI9 gates passed; signed standard+preview installed; final standard+preview native/MCP passed | Complete |
+| AKs-MBPro.local | WordCraft / Word workstream | dbacf0c4 / helper0.1.2 | Deployed | User saved/closed Preview; both signed bundles installed and independent native settings/MCP checks passed | Complete |
+| AKsMini | GridCraft / Grid workstream | e8f93495 / helper0.1.2 | Deployed | Exact CI10 gates/3280passed; standard+preview installed and final native settings/MCP checks passed | Complete |
+| AKs-MBPro.local | GridCraft / Grid workstream | e8f93495 / helper0.1.2 | Deployed | Standard installed and final independent native settings/MCP checks passed; preview remains absent | Complete |
 
 Local network discovery changed: MacBook mDNS lookup failed, but its verified Tailscale peer is online and SSH confirmed the expected hostname, arm64 and macOS27.2. No service/proxy configuration changed.
+
+Helper package83e61084 was built with required open-font pinb076417b and signed using the configured local certificate. Archive SHA-256 `182d4aeaf186d8f48d8115e3bbbc5dba50048559b2202ac3ac786fed40174197`; signed executable `27fa802aeb588b08a5e93c81f5d3b570f207daa39bc8749c66151f9b4848f403`. Real installer activated0.1.1 with previous0.1.0 on both devices. Before/after checks confirmed the configuration files and every installed app executable stayed byte-identical during helper installation. All three app-ID private-pipe handshakes passed separately on both devices. Mini's existing PDF standard/preview, Word standard and Grid standard loaded the new helper; synthetic MCP/read/render and normal cleanup passed, with no inference. Native screenshots show the compact helper UI; the old hosts still correctly retain their old update toolbar until rebuilt.
+
+MacBook helper-only native acceptance also passed: PDF standard/preview typing, Settings, resize/theme, compact labels and eight synthetic MCP operations; Word standard17-tool edit/read/Undo/Redo/save/reopen/render; Grid standard22-tool listing and expected synthetic cell reads. All test-owned apps quit normally and listeners released. No model inference or personal settings were used. This completes the independent assistant-only update demonstration on both Macs with unchanged host executable hashes. Rebuilt-host update-control placement remains in progress.
+
+### Navigation clarification (user screenshot follow-up)
+
+The screenshot came from an old host that still renders the version/check/status toolbar in chat. The rebuilt host83 controller already groups the version, check button, update status/notice and install action under settings visibility. Regression coverage now asserts the version and status copy move with the button. Grid hosts are now atomically installed on both Macs (Mini standard+preview; MacBook standard) with previous bundles retained; final native qualification waits for the refined helper.
+
+Helper0.1.2 replaces the ambiguous Chats control with explicit New chat and a Chat history dropdown, retaining busy guards, saved selection/delete and draft-preserving actions. Fifteen focused UI checks (including visual exports),30 helper checks and strict scoped lint passed. Narrow280-point and light/dark previews were inspected. The existing83 host contract remains compatible; no host rebuild is required for this additional navigation revision. Helper0.1.2 is now built, locally signed and installed on both Macs;0.1.0 and0.1.1 remain available for rollback. All three app-ID handshakes passed independently on each device. Config files and app binaries stayed byte-identical through this helper-only activation.
+
+Helper0.1.2 source `3dda16ac779f0ffbfd91a4eefe720346aca006d2`: archive SHA-256 `7affceecf0497f1219d61f4cf69fc3d74d5427ab9a29f83ec46bd2c71d69abb1`; signed executable `88a56df8c4d7a91c4d43256aa98df197cdce47b90448cfe519a1aeadb9c63f9a`. Real installer receipts are in `/private/tmp/craft-compact-rollout-20261103/helper012/` on each device. Host builds retain the compatible83e61084 pin; this navigation revision needed no further host rebuild.
+
+PDFCraft71cc43cc standard and Preview installed on both Macs; native QA passed independently for both variants on each Mac, including New chat/Chat history, file/model menus, draft typing/clear, actual up-to-date notice inside Settings and hiding the button/version/notice when Settings closes.183 tools listed and8 synthetic MCP operations passed. All test-owned instances quit normally and released their listeners. Exact receipts are cited in PDFCraft's assistant implementation ledger. Local app backups are under `~/Applications/Craft Rollout Backups/2026-11-03-compact/`. No inference, personal histories or credentials were used.
+
+GridCraft final installed acceptance passed for Mini standard+Preview and MacBook standard: exact signed e8f93495 native builds, helper0.1.2, explicit navigation, gear-only update controls and22-tool synthetic MCP read checks. Mini receipts `/private/tmp/gridcraft-installed-smoke-4vikfzy4/report.json` and `/private/tmp/gridcraft-installed-smoke-4orcfvji/report.json`; Book successful retry log `/private/tmp/craft-012-grid-final-macbook-retry.log`. An initial Book screenshot OCR service failed; retry passed after standalone checker initialization, without app code changes. All owned test processes/listeners exited. Validation2002be68 changes only tests/docs and passed exact CI10/10; installed production source remains e8f93495.
+
+WordCraft optimized build dbacf0c4 passed and both supported standard/Preview packagers verified signed ZIP/DMG/mounted copies, exact certificate/identifier, source stamp, arm64, bridge1 and required open-font/proofing notices. Mini standard+Preview were atomically installed with rollback copies; standard final17-tool synthetic edit/read/Undo/Redo/format/save/reopen/render and gear/settings-only checks passed. Existing CLI selection unchanged. MacBook went offline during staging (Tailscale Online=false, SSH timeout), before any Word install; last observed user Preview process remained open. User asked to wake/keep online and save/close Preview. Candidates remain ready; no completion is claimed for MacBook WordCraft.
+
+Mini WordCraft Preview final native acceptance also passed: helper0.1.2, gear/settings-only updates, synthetic17-tool document operations, normal quit/listener release/key cleanup. Standard receipt root `/var/folders/cg/796c5bys74db15ww0b_qvw8c0000gn/T/wordcraft-installed-smoke-kea6_qcz`; Preview root `/var/folders/cg/796c5bys74db15ww0b_qvw8c0000gn/T/wordcraft-installed-smoke-u_2trrla`. No provider request was sent. MacBook Word remains blocked; live inference/IME/clipboard/VoiceOver and public-feed activation remain unverified.
+
+### Final MacBook completion — 2026-11-03
+
+This checkpoint resolves the historical MacBook Word blocker above. The user confirmed saved/closed Preview and awake/unlocked MacBook. Both WordCraft dbacf0c4 bundles were atomically installed; exact certificate/identifier, source stamp, arm64 version and candidate native hashes verified. Existing CLI/settings/history were preserved; rollback bundles remain under `~/Applications/Craft Rollout Backups/2026-11-03-compact/`.
+
+Independent standard and Preview runs passed helper0.1.2, explicit chat navigation, settings-only update controls,17-tool synthetic edit/read/Undo/Redo/format/save/reopen and1793-byte PNG rendering. Standard receipt root `/var/folders/z6/7ct4dgns2236tw0d27zdb9s40000gn/T/wordcraft-installed-smoke-1hmcgwgf`; Preview `/var/folders/z6/7ct4dgns2236tw0d27zdb9s40000gn/T/wordcraft-installed-smoke-rr3j8hfg`. The final Preview screenshot was visually inspected. Each owned test instance quit normally and released its listener/key. An initial exact-OCR-row assertion failed; temporary test matching now accepts the same labels within combined text rows, with no product change. A dropped connection was resolved by user wake/unlock; reruns held idle sleep only during each test. No provider request or personal content was used.
+
+All requested existing app copies are now deployed and qualified on both Macs (MacBook Grid Preview remains absent as before). No public release or notarization was performed. Live provider, IME, clipboard, VoiceOver and public-feed activation remain manual checks. Compatible helper-only UI updates were independently demonstrated without app rebuilds; app-owned controls and document features require an app binary update.
+
+### Model selector and MacBook Codex repair — 2026-11-04
+
+Scope: helper-only correction for the reported model-control flicker and Codex executable
+lookup failure on the MacBook. Toolbar app changes are independently verified source updates;
+no toolbar app rebuild/install is part of this helper delivery.
+
+| Device / component | Owner | Target | State | Acceptance / remaining work |
+| --- | --- | --- | --- | --- |
+| MacBook / shared helper | Primary | 0.1.3 / aeb7d47 | Deployed | Pinned-signature install, unchanged apps/configuration, three host handshakes, isolated installed panel and bundled Codex discovery checks passed; reopen existing panes to adopt the update |
+| Mini / helper candidate | Primary | 0.1.3 / aeb7d47 | Verified | Optimized runtime executable with required fonts, pinned signature, dry-run install and three host handshakes passed; current active helper unchanged |
+
+Preflight confirmed `AKs-MBPro.local`, arm64, helper 0.1.2, configured local certificate trust,
+and Codex 0.166.0-alpha.6 bundled in ChatGPT. Codex is absent from the app's ordinary PATH and
+`CRAFT_CODEX_BINARY` is unset. No credentials, account history or documents were copied.
+The existing immutable helper package mechanism and local certificate identity were reused;
+no provider substitution, app replacement, public release or notarization is implied.
+
+Candidate build: `aeb7d478d25b46a1a35f356f3f0ab1ceb12d3f97`, helper 0.1.3,
+required craft-fonts input `b076417b5880bd4154bd22f00695b1d28c6bea83`.
+Package SHA-256: `3ad99a40b2c6783eceef1ed9bf0bacaa0fbc624ed304f58eee4461f52b6b3641`.
+Signed executable SHA-256: `717ca902db41274d51f9fc520a25e47a14b391f1af8ee0ac01598007b57e69ee`.
+The final runtime-feature build, strict certificate/identifier verification, dry-run installer,
+and PDF/Word/Grid handshakes passed before transfer. The earlier library-only build was not
+packaged. Source tests also preserve cross-process history create/title-save/delete refresh.
+The standalone bundled-Codex discovery/version smoke passed independently on the MacBook
+with GUI-like PATH and no explicit binary override; it performed no authentication or inference.
+
+MacBook installation passed with active 0.1.3 and previous 0.1.2 retained. Archive, installed
+executable and exact signature/identifier matched the candidate. Shared configuration and all
+observed standard app binary hashes were unchanged. Three isolated host handshakes passed.
+
+Installed standard PdfCraft native acceptance passed using a disposable profile and synthetic
+PDF: helper child path confirmed 0.1.3; all 32 model-button samples remained enabled across
+multiple idle refresh intervals; New chat/history/model/file menus, draft typing/clear,
+resize/theme and app-only screenshot passed. The screenshot was retrieved and inspected.
+The retained installed CLI listed 183 tools and passed 8 create/metadata/render/save/close/reopen
+operations. The test-owned app quit normally and released its OS-assigned loopback listener;
+no existing process was signalled. No provider request or real credential/history access was used.
+
+Local package/build receipts: `/private/tmp/craft-assistant-013-20261104/` on the Mini.
+MacBook installer receipt: `/private/tmp/craft-assistant-013-20261104/installed-report.json`.
+MacBook native receipt: `/var/folders/z6/7ct4dgns2236tw0d27zdb9s40000gn/T/pdfcraft-installed-smoke-wvirmkj7/report.json`.
+Existing MacBook windows adopt the new helper when Assistant is closed and reopened; active
+turns retain their current executable until the controller's safe restart boundary. Mini's
+active helper remains0.1.2. Toolbar source changes are not installed on either device.
+Live Codex authentication/inference, native IME/clipboard/VoiceOver and public release remain
+unperformed. Metadata-preserving external file edits require explicit Reload settings.
+
+
+### Hide tool activity on both Macs — 2026-11-04
+
+| Device | Owner | Target | State | Acceptance |
+| --- | --- | --- | --- | --- |
+| AKsMini | Primary | helper 0.1.4 | Deployed | Signed install, previous 0.1.2 retained; three handshakes and synthetic Word model/edit/Undo/save/reopen passed |
+| AKs-MBPro.local | Primary | helper 0.1.4 | Deployed | Same signed package, previous 0.1.3 retained; three handshakes and synthetic Word model/edit/Undo/save/reopen passed |
+
+The assistant retains tool calls and results in conversation state but hides their transcript and activity rows. Existing app bundles, configurations and chats remain in place.
+
+Delivery source `77bd2bde4216085232564a662258d4d85b4bb934` includes display fix `b0342c0`.
+Package SHA-256 `bcd807157d9362d3b3f83f2601d9e8419462b24537bfe2add4ab67b5d1df5cdf`;
+executable SHA-256 `7303f421941221f214d15299d519ee51bb42b856bd5095f48ca3dfc47498a488`.
+Certificate/identifier, package checksums, three host handshakes, unchanged configuration and
+app binary hashes, and retained previous versions passed independently on both devices.
+
+Installed WordCraft synthetic acceptance used the configured Codex account model
+`gpt-6.1-terra`: the requested replacement was visible and Undo, Redo, save and reopen all
+passed on the Mini (15.11 seconds) and MacBook (13.18 seconds). The model followed the
+instruction not to save; the harness then saved for verification. The two rendered conversations
+were inspected and show user/assistant text without tool call/result/activity rows. Tests used
+disposable documents and profiles and the existing authenticated account; no credentials or
+personal conversations were copied. Existing app windows were not signalled. Test-owned
+windows quit and listeners were released. This cloud model can receive document task content.
+
+Mini receipt `/var/folders/cg/796c5bys74db15ww0b_qvw8c0000gn/T/wordcraft-installed-smoke-mgs5k27t/report.json`;
+MacBook receipt `/var/folders/z6/7ct4dgns2236tw0d27zdb9s40000gn/T/wordcraft-installed-smoke-ox2fqt4c/report.json`.
+Package and copied MacBook receipts: `/private/tmp/craft-assistant-014-20261104/`.
+Close and reopen Assistant in an existing window to adopt the new helper; active turns retain
+their current helper until the safe restart boundary. The app-toolbar source changes remain
+uninstalled. Native VoiceOver, IME and clipboard checks and public release were not performed.
+
+
+### Normal Codex environment, workspace safety and approvals — 2026-11-04
+
+| Device / verified host | Component / target | State | Evidence / activation |
+| --- | --- | --- | --- |
+| Mini / AKsMini | Shared helper0.1.6, source1ebb61a | Deployed | Signed install, four host handshakes, unchanged configuration/eight app binaries, previous0.1.4 retained; actual installed Word candidate model acceptance24.27s |
+| MacBook / AKs-MBPro.local | Same signed shared helper0.1.6 | Deployed | Independent signature/hash/install/four handshakes, unchanged configuration/four app binaries, previous0.1.4 retained; actual installed Word candidate model acceptance10.11s |
+
+Delivery source: `1ebb61ac04923c0cd79e11514eddebd38a99793c`.
+Required reviewed craft-fonts input: `37827adc41fd165f9a9234ac40f94dbad353aa69`.
+Archive SHA-256: `75085a4ea473e4bea1bcd1a4644a2f92664fd87b469e314766b6ebf8a7486a42`.
+Signed executable SHA-256: `224527703fd06f01cfec8a7de637ecedd55209263ff21e48fa91a652caa110e1`.
+The existing local certificate/identifier trust and immutable installer were reused. No public
+release/notarization or app replacement is claimed by this helper delivery.
+
+The helper now uses the account's normal CODEX_HOME/HOME configuration, skills, plugins and
+MCP environment, with explicit native approvals/input in the panel and no automatic grants.
+Craft histories remain app-specific; native threads remain ephemeral. Registered document
+tools preserve engine Undo; native shell/plugin external changes follow Codex policy and are
+outside app Undo. Default workspaces are retained per-app directories under the Craft AI
+configuration root, independent of Finder's launch cwd. `CRAFT_CODEX_WORKSPACE` explicitly
+selects an absolute project/output directory; unsafe/invalid paths fail without fallback.
+Settings identifies the selected workspace and profile. Existing project permissions remain
+unchanged, and outputs are retained.
+
+The initial0.1.5 actual Mini Word turn failed before inference completion because the adapter
+forced `--strict-config`, which rejected an existing legacy skills field accepted by the same
+Codex executable in normal mode. MacBook0.1.5 installation completed just as that hold arrived;
+it passed signatures/handshakes but no model turn was launched there. Both devices restored
+signature-verified0.1.4 without touching running app processes. Version0.1.5 remains retained
+for diagnosis and was not marked usable/deployed. The immutable0.1.6 correction uses normal
+configuration loading; it neither changes the profile/account/provider nor copies credentials.
+
+Before global activation, each device installed the signed0.1.6 candidate into a temporary
+trusted installation store. The existing standard WordCraft0.15.0 (`dbacf0c4b5c9571ad1c03df83efb926895ee7444`)
+was launched as a separate test-owned instance with disposable document/AI profiles and normal
+Codex account discovery. Its existing native `gpt-6.1-terra` route replaced synthetic text;
+visible edit, Undo, Redo, save/close/reopen, all17 MCP tools and Inter-font PNG rendering passed.
+Both final screenshots were inspected and show the document change and normal user/assistant
+conversation without tool activity rows. Test-owned instances quit normally, released their
+loopback sockets and removed private control keys. Existing user instances were not signalled.
+The same verified binary was then globally activated, retaining0.1.4 as rollback; configuration
+and all observed app-binary hashes remained unchanged. Four isolated protocol1 handshakes
+(PdfCraft, WordCraft, GridCraft and DeckCraft) passed independently on each Mac.
+
+Mini Word receipt: `/var/folders/cg/796c5bys74db15ww0b_qvw8c0000gn/T/wordcraft-installed-smoke-k321ql3w/report.json`.
+MacBook Word receipt: `/var/folders/z6/7ct4dgns2236tw0d27zdb9s40000gn/T/wordcraft-installed-smoke-i_mz3_c0/report.json`.
+Both installer receipts: `/private/tmp/craft-assistant-016-20261104/package/installed-report.json`
+on their respective hosts. Copied MacBook candidate/install/model receipts and private PNGs:
+`/private/tmp/craft-assistant-016-20261104/macbook-evidence/` on the Mini.
+The signed0.1.6 synthetic native MCP/document-tool fixture also passed on the Mini (16.94s).
+Earlier source candidate actual native Stop/abrupt-helper-exit owned-child cleanup proofs
+passed; no inference or cleanup parity is inferred solely from a handshake.
+
+Source checks include the normal startup-args regression, workspace/root/symlink/output and
+permission tests, exact pending-request/approval validation, bounded UI input, cancellation,
+font policy and minimum-helper frame admission. Scoped unit/integration suites and strict
+all-target Clippy passed as recorded in the source ledger. Existing windows adopt0.1.6 at
+the controller's safe idle restart boundary after closing/reopening Assistant; active turns
+retain their current helper. Native VoiceOver/IME/clipboard and public release remain
+unperformed. This helper delivery does not install deferred app toolbar changes or assert
+full Codex desktop/history parity.
+
+The final DeckCraft host requires helper0.1.6 via the opt-in minimum-version API:0.1.5 met
+the font policy but failed normal-profile startup acceptance, so0.1.6 is the first qualified
+candidate. This records the host requirement, not a claim that DeckCraft was installed by
+this helper delivery. Generic API tests using a0.1.5 minimum remain valid version-gate tests.
+
+
+### Visible message-box outline — 2026-11-05
+
+| Host | Component | State | Evidence / activation |
+|---|---|---|---|
+| AKsMini | Shared helper0.1.7, sourcef2295dd | Deployed | Exact signed install; previous0.1.6 retained; four app protocol1 handshakes, unchanged public configuration/app hashes; installed normal Deck light/dark composer inspected. |
+| AKs-MBPro.local | Same signed shared helper0.1.7 | Deployed | Independent installed hash/signature/manifest and four handshakes; same preservation and installed Deck light/dark panel/render/normal-exit checks. |
+
+Archive SHA-256 `33ff84d86131119e597127d0d9f81aad1af6a5f556fa83e8657c37cb7458b23b`;
+signed native SHA-256 `f73b7e74f2db1f8e69e72c2dcf7621f164a3c3c0f5bc1e4ba730c2ee45a77d39`.
+Exact existing certificate/identifier and reviewed font pin37827 are retained. Both installer
+receipts: `/private/tmp/craft-assistant-017-20261105/package/installed-report.json` on their
+respective hosts. The shared UI adds only a visible idle/focus outline to the bottom composer;
+no sidebar separator, provider/model, schema or bridge change. Code and source publication,
+red/green contrast regression,481 UI/30 helper tests, Clippy/WASM, signed package and installed
+rendering evidence are detailed in [the outline record](assistant-composer-outline.md).
+
+No live inference was repeated for this visual-only update. Idle panels adopt the new helper
+after close/reopen; active turns keep their existing process. Normal-app consolidation and
+Preview removal belong to the suite coordinator. No public release/notarization or physical
+VoiceOver/IME/clipboard acceptance is claimed.
